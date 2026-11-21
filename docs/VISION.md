@@ -76,7 +76,7 @@ scenario, highlights it on the map and replays it → we clear the exit → the 
 | Prototype twin (`prototype/`, the team demo, decision #28): room-rectangle layouts, 2D/3D, click-to-ignite, Gemini floor plan → twin, room photo → furniture and blocked doors, "Find fix" (Gemini proposes, sim scores), phones feed per-room head counts, Freeze, a "live only" switch (only the people and furniture phones have seen), camera-informed vs plan-only twin side by side | **Built** |
 | Grid twin (`web/`): v2 grid map, voxel 3D view, `sim.js` on the grid, Run / Pause / Reset / Replay | **Built** |
 | Perception server (`server/`): continuous per-camera counts (Decisions every frame + Hydrogen re-count ~3 s), **room mode** (default) and **grid mode**, phone position and facing, audio alarm detection | **Built** |
-| Crowd mode with hidden / beyond-the-frame estimates as whole agents, single-shot snapshot, "Build from cameras", camera panel with Gemini overlay | **On Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub)** |
+| Crowd mode: hidden / beyond-the-frame estimates as whole agents; camera panel with Gemini's analysis drawn over the frame | **Planned** |
 | Live world: **stabilised** people + **obstacles tracked continuously** from cameras, world snapshots | **Planned** (obstacles exist only in the prototype's on-demand photo flow) |
 | Events beyond fire: crowd crush / surge, generic danger zone | **Planned** (blocked exits partly exist: lock / unlock, camera `exit_blocked`) |
 | Headless simulation service (Node) + Gemini agent (single scenario, sweep, map highlights, background alerts) | **Planned** |

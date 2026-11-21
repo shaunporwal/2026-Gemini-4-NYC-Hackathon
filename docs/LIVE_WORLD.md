@@ -6,9 +6,8 @@ from a snapshot of it.
 
 > Status (checked against `main`): **built**: static maps (grid and prototype rooms), continuous per-camera
 > people counts (room mode: a head count per room; grid mode: floor positions), phone position and facing,
-> a Freeze button and a "live only" switch (only the people and furniture phones have seen). **On Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub)**: crowd mode with hidden and beyond-the-frame people as whole
-> agents. **Partial**: obstacles exist only in the prototype's on-demand room photo flow (Gemini reads furniture
-> and blocked doors from a photo, in the browser). **Planned**: stabilisation, continuous obstacle tracking,
+> a Freeze button and a "live only" switch (only the people and furniture phones have seen). **Partial**: obstacles exist only in the prototype's on-demand room photo flow (Gemini reads furniture
+> and blocked doors from a photo, in the browser). **Planned**: crowd mode with hidden and beyond-the-frame people as whole agents, stabilisation, continuous obstacle tracking,
 > world snapshots.
 
 ## Layers
@@ -35,8 +34,7 @@ Each camera re-estimates every few seconds. The world doesn't copy each estimate
 - **Overlapping cameras.** Two cameras seeing the same area must not double-count (de-duplication by cell
   proximity is planned).
 
-This **replaces** the single-shot "Build from cameras" design on Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub) as the default. A
-one-off snapshot remains useful for tests and as a fallback. Note: `main`'s server already re-counts
+A one-off multi-frame snapshot remains useful for tests and as a fallback. Note: `main`'s server already re-counts
 continuously (decisions #30–31 on `main`) but doesn't stabilise. Counts can jump between frames.
 
 ## Obstacles: whatever the model decides

@@ -12,8 +12,7 @@ Built at the Gemini 4 NYC Hackathon (2026-11-21).
 | | |
 |---|---|
 | **Built** | Simulation engine (fire, smoke, routing, casualties, doorway queues, lockable exits, exit-awareness matched replay, headless `run()`); prototype twin (team demo) with live per-room camera counts, Freeze and a "live only" switch (only the people and furniture phones have seen); grid twin (`web/`) with the same engine; perception server (continuous counts, room and grid modes) |
-| **On Jacob's branch, not merged** (`jacob/camera-feed`) | Crowd mode with hidden and beyond-the-frame estimates as whole agents; camera panel showing Gemini's analysis; "Build from cameras" |
-| **Planned** | Stabilised live world with obstacles; crowd crush and danger-zone scenarios; headless Node sim service; the Gemini agent (scenarios, worst-case sweeps, map highlights, background alerts) |
+| **Planned** | Crowd mode with hidden and beyond-the-frame estimates; camera panel showing Gemini's analysis; stabilised live world with obstacles; crowd crush and danger-zone scenarios; headless Node sim service; the Gemini agent (scenarios, worst-case sweeps, map highlights, background alerts) |
 
 ## Run what exists
 ```bash

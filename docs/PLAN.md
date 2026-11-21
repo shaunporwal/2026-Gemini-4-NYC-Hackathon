@@ -4,11 +4,12 @@ Concept: [VISION.md](VISION.md) · Architecture and open decisions: [ARCHITECTUR
 Status is checked against `main` (2026-11-21). This plan is a proposal: owners and order are for the team to confirm.
 
 ## Phase 0: settle the open decisions
-The team agrees on ARCHITECTURE.md → Open decisions **A–F**, above all **A (canonical world format)** and
+The team agrees on ARCHITECTURE.md → Open decisions **A–E**, above all **A (canonical world format)** and
 **B (frontend)**. Everything below depends on them.
 
 ## Phase 1: one live world
-- [ ] Bring in crowd mode with estimates and the camera panel from Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub) (resolve the server conflicts with room mode)
+- [ ] Crowd mode: Gemini estimates hidden and beyond-the-frame people as whole agents (one per cell, labelled)
+- [ ] Camera panel in the organizer view: live frame with Gemini's analysis (mode, what it's doing, whether it's estimating beyond its view)
 - [ ] One world format for both perception modes (decision A); converter if needed
 - [ ] Stabilise people: persistence (~10 s), matching, gradual counts, one per cell, labels kept ([LIVE_WORLD.md](LIVE_WORLD.md))
 - [ ] Obstacles in perception: Gemini reports whatever blocks movement (cells, label, confidence); consistent-sighting rule; blocked openings
@@ -31,7 +32,7 @@ The team agrees on ARCHITECTURE.md → Open decisions **A–F**, above all **A (
 ## Later
 - [ ] First-responder access: route and time for responders against the evacuating crowd and the hazard ([SCENARIOS.md](SCENARIOS.md))
 - [ ] Agent-proposed mitigations, re-simulated (builds on the prototype's "Find fix")
-- [ ] Multi-camera de-duplication; landmark calibration wired in (prototype exists on Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub))
+- [ ] Multi-camera de-duplication; landmark calibration (Gemini matches the real frame to a twin render → floor homography)
 
 ## Ownership (to confirm)
 | Area | Who |
