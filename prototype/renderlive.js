@@ -6,6 +6,7 @@
   const REFRESH_MS = 1000;     // a phone sends about 1 frame each second
   const INFO_MS = 5000;        // how often to ask the server for the phone link and the saved frames
   const STALE_S = 5;           // no frame for this long = the phone stopped
+  const SHOW_SAVED = false;    // the demo is live feed only: no strip of saved frames, no build from saved frames
   const MAX_TILES = 6, MAX_SAVED = 12;
   const REBUILD_FRAMES = 4;    // saved frames of a room that Gemini reads together
   const HAZE_MAX = 0.6;        // the picture must stay readable in full smoke
@@ -93,7 +94,7 @@
       savedOf = {};
       for (const f of all) (savedOf[f.room] = savedOf[f.room] || []).push({ url: src.captureUrl(f.room, f.file), pose: f.pose || null });
       const list = all.slice(0, MAX_SAVED), key = list.map(f => f.room + f.file).join();
-      saved.hidden = !list.length;
+      saved.hidden = !SHOW_SAVED || !list.length;
       if (key === stripKey) return;
       stripKey = key;
       const hadFocus = strip.contains(document.activeElement);
@@ -134,7 +135,7 @@
       if (now - lastInfo < INFO_MS) return;
       lastInfo = now;
       src.info().then(showJoin).catch(() => { link = null; qr.hidden = true; joinLink.textContent = TEXT.off; });
-      src.captures().then(showSaved).catch(() => {});
+      if (SHOW_SAVED) src.captures().then(showSaved).catch(() => {});
     }
 
     function draw(sim, t) {
@@ -163,7 +164,7 @@
           : o.peopleCount + TEXT.people + ' · ' + (stopped ? TEXT.last + clock(lastS * 1000) : [o.density].concat(o.events).join(', '));
         tl.cap.textContent = [room + (n ? ' · phone ' + n : ''), what, sim1].filter(Boolean).join(' · ');
         tl.fig.classList.toggle('alarm', st.fire > 0);
-        tl.act.hidden = !(savedOf[room] || []).length;
+        tl.act.hidden = !SHOW_SAVED || !(savedOf[room] || []).length;
         tl.act.disabled = src.busy();
         tl.act.textContent = src.busy() ? TEXT.reading : TEXT.rebuild;
       }
