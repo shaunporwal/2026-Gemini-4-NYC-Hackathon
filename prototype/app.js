@@ -4,15 +4,18 @@
   const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts, FEED = window.Feed;
   const $ = id => document.getElementById(id);
   const SEED = 7;
-  const KEY_STORE = 'fireTwinGeminiKey';
+  const KEY_STORE = 'fireTwinGeminiKey', INFORMED_STORE = 'fireTwinInformed';
   const PA_IDLE = 'Click the floor to start a fire. Click a door or exit to lock or unlock it.';
+  const FIX_WAIT_S = 20;   // Find fix never waits longer than this for Gemini
   const DETAIL_S = 30;   // a room is rebuilt from its camera at most this often
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
-  const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
+  /* plan = the layout as loaded (floor plan only). layout = the same building after the phones changed it.
+   * seen = the rooms a phone changed. Every run on `layout` is also run on `plan`: the gap is what the cameras add. */
+  const state = { layout: null, plan: null, seen: new Set(), label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
   /* Three views of the same sim: 2D canvas, 3D voxels, live phone cameras. Same interface; each starts on first use. */
   const VIEWS = {
     '2d': { canvas: 'cv', make: window.FireRender },
@@ -115,6 +118,7 @@
       if (live1 && !asked) room.people = live1.peopleCount;    // the feed's count is newer than this frame's
       state.layout = res.layout;
       $('json').value = JSON.stringify(state.layout);
+      informed(roomName);
       showSeen(G.notesOf(state.layout));
       syncFeed();
       reset();
@@ -136,6 +140,7 @@
     if (idle && o.stream && o.stream.ok && o.peopleCount !== room.people) {
       room.people = o.peopleCount;
       $('json').value = JSON.stringify(state.layout);
+      informed(room.name);
       reset();
     }
     const cause = o.events.includes('fire') ? 'Camera in ' + room.name + ' sees fire.'
@@ -158,6 +163,18 @@
     return best;
   }
 
+  /* After a reload: bring back the camera-informed twin, if it is for a preset we still have. */
+  function restoreInformed() {
+    try {
+      const kept = JSON.parse(sessionStorage.getItem(INFORMED_STORE) || 'null');
+      const key = kept && kept.seen.length && Object.keys(LAYOUTS).find(k => LAYOUTS[k].name === kept.plan.name);
+      if (!key) return;
+      $('preset').value = key;
+      loadLayout(kept.layout, kept);
+      log('Restored the twin with the phones\' changes (' + kept.seen.length + ' rooms).');
+    } catch (e) { sessionStorage.removeItem(INFORMED_STORE); }
+  }
+
   function setView(mode) {
     const v = VIEWS[mode];
     Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
@@ -169,13 +186,25 @@
 
   function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
 
-  function loadLayout(L) {
+  /* Keep the camera-informed layout across a reload of this tab (the phones' work must not be lost on stage). */
+  function remember() {
+    sessionStorage.setItem(INFORMED_STORE, JSON.stringify({ layout: state.layout, plan: state.plan, seen: [...state.seen] }));
+  }
+
+  /* A phone changed this room (head count or furniture). */
+  function informed(roomName) { state.seen.add(roomName); remember(); }
+
+  /* restored = {plan, seen} from remember(): L is then a camera-informed layout, not a fresh plan. */
+  function loadLayout(L, restored) {
     const errs = F.validateLayout(L);
     if (errs.length) throw new Error(errs.join('; '));
     const s = new F.Sim(L).stats();
     if (!s.total) throw new Error('layout has no people');
     if (s.trapped) log('Warning: ' + s.trapped + ' of ' + s.total + ' people have no route to an exit.');
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
+    state.plan = restored ? restored.plan : F.clone(L);
+    state.seen = new Set(restored ? restored.seen : []);
+    remember();
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
     showSeen(G.notesOf(L));
@@ -185,12 +214,21 @@
     say(PA_IDLE);
   }
 
+  /* The run is over. If phones changed the twin, run the SAME fire on the plan-only twin too:
+   * the 2 rows side by side show what the cameras and microphones add. */
   function onDone() {
-    const r = state.sim.stats();
+    const r = state.sim.stats(), compare = state.seen.size && state.label === 'Baseline';
     state.running = false;
     state.lastIgn = state.sim.ignitions.slice();
-    addRow($('runs'), state.label, r);
-    say('Run complete. ' + r.out + ' out, ' + r.lost + ' lost.');
+    if (!compare) {
+      addRow($('runs'), state.label, r);
+      return say('Run complete. ' + r.out + ' out, ' + r.lost + ' lost.');
+    }
+    const p = F.run(state.plan, state.lastIgn, simOpts()), n = state.seen.size;
+    addRow($('runs'), 'Floor plan only', p);
+    addRow($('runs'), 'With phones (' + n + ' room' + (n > 1 ? 's' : '') + ')', r, 'Same fire. Phones changed: ' + [...state.seen].join(', ') + '.');
+    log('Same fire: the floor plan alone predicts ' + p.lost + ' lost of ' + p.total + '. With the phones: ' + r.lost + ' lost of ' + r.total + '.');
+    say('Run complete. ' + r.lost + ' lost. The floor plan alone predicted ' + p.lost + '.');
   }
 
   /* PA announcement when the set of blocked exits changes (and at the first fire). */
@@ -219,7 +257,8 @@
     if (cfg().key) {
       try {
         log('Gemini: proposing fixes…');
-        (await G.proposeFixes(cfg(), { layout: state.layout, ignitions: ign, baseline: base }))
+        const late = new Promise((ok, fail) => setTimeout(() => fail(new Error('Gemini took more than ' + FIX_WAIT_S + ' s. Showing the search results.')), FIX_WAIT_S * 1000));
+        (await Promise.race([G.proposeFixes(cfg(), { layout: state.layout, ignitions: ign, baseline: base }), late]))
           .forEach(p => cands.push({ action: p, source: 'Gemini', reason: p.reason }));
       } catch (e) { log('Fix: ' + e.message); }
     }
@@ -259,6 +298,9 @@
     if (tag >= 0) {
       const ref = sim.openings[tag].ref;
       ref.locked = !ref.locked; sim.refreshOpening(tag);
+      const same = F.openingsOf(state.plan).find(o => o.id === ref.id);   // a door a person locks is locked in both twins
+      if (same) same.locked = ref.locked;
+      remember();
       state.label = 'Manual: ' + ref.id + (ref.locked ? ' locked' : ' unlocked'); showLabel();
     } else if (sim.done) log('Run is complete. Use Reset or Replay.');
     else if (sim.ignite(c.x, c.y)) state.running = true;
@@ -329,6 +371,7 @@
     setInterval(showLive, 1000);
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
+    if (FEED.presenter) restoreInformed();
     if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
       $('pages').hidden = false; $('setup').hidden = $('preset').hidden = true;
       FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});

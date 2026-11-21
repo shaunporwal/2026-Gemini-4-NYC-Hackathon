@@ -12,8 +12,9 @@
   const FAST = { thinking: 'low' }, DEEP = { deep: true };
 
   /* cfg = {key, model, deep}. Two Gemini 4 models, one job each:
-   *   cfg.model (Hydrogen) = fast reads: room photos, PA text. Low thinking level: about 6 s for a photo.
-   *   cfg.deep (Neon or Carbon) = slow reasoning: floor plan -> layout, fix proposals. Default thinking level.
+   *   cfg.model (Hydrogen) = fast work while people wait: room photos, PA text, fix proposals. Low thinking level.
+   *   cfg.deep (Neon or Carbon) = slow reasoning, done before the demo: floor plan -> layout. Default thinking level.
+   *   (Fix proposals ran on Neon first: no answer after 60 s. The sim scores every proposal, so a fast model is enough.)
    * parts = Gemini "parts" array. opts = {deep, thinking}. Returns the reply text. */
   async function call(cfg, parts, wantJson, opts) {
     if (!cfg.key) throw new Error('no API key');
@@ -208,7 +209,7 @@
       'A deterministic simulator will score each proposal, so be specific. reason = 1 short sentence.\n' +
       'Return JSON: {"proposals":[...]}\n' +
       'Layout: ' + JSON.stringify(ctx.layout) + '\nFire start points (tick,x,y): ' + JSON.stringify(ctx.ignitions) +
-      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true, DEEP);
+      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true, FAST);
     const list = parseJson(text).proposals;
     return (Array.isArray(list) ? list : []).filter(p => p && typeof p === 'object').slice(0, 3)
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
