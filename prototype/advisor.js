@@ -1,9 +1,11 @@
-/* Advisor tab: wire its DOM to analysis.js (the runs) and gemini.js (proposals, guide). No physics, no prompts.
- * The agent loop: run many scenarios -> find what goes wrong -> Gemini (fast) proposes changes -> the sim tests every
- * change on the same scenarios -> Gemini (reasoning) writes the advice guide from the measured numbers. */
+/* The advisor: wires the Advisor tab and the assistant chat to analysis.js (runs) and the server's agent (feed.js).
+ * No physics, no prompts, no API key: every Gemini call is made by server/agent.py.
+ * Advisor tab: run many scenarios -> find what goes wrong -> Gemini (fast) proposes changes -> the sim tests every
+ * change on the same scenarios -> Gemini (reasoning) writes the advice guide from the measured numbers.
+ * Chat: each question goes to the server agent with a snapshot of the twin; it runs simulations itself and answers. */
 (function () {
   'use strict';
-  const F = window.FireSim, A = window.FireAnalysis, G = window.Gemini;
+  const F = window.FireSim, A = window.FireAnalysis, FEED = window.Feed;
   const $ = id => document.getElementById(id);
   const PROPOSE_WAIT_S = 45, GUIDE_WAIT_S = 150;
   const app = () => window.FireApp;
@@ -130,7 +132,7 @@
   async function run() {
     if (running) { job++; running = false; $('advRun').textContent = 'Run analysis'; return progress(0, 1, 'Stopped.'); }
     const my = ++job, cancelled = () => my !== job;
-    const L = F.clone(app().layout()), cfg = app().cfg(), opts = { fireRate: app().fireRate() };
+    const L = F.clone(app().layout()), opts = { fireRate: app().fireRate() };
     const n = +$('advRuns').value, list = A.scenarios(L, n, 1);
     running = true; $('advRun').textContent = 'Stop';
     $('advThoughts').textContent = ''; $('advScenarios').textContent = ''; $('advTests').textContent = '';
@@ -161,15 +163,13 @@
 
       const actions = A.searchActions(L, summary).map(a => Object.assign({ source: 'Search' }, a));
       think('Agent', 'Changes from search: ' + (actions.map(a => F.actionLabel(a)).join(', ') || 'none') + '.');
-      if (cfg.key) {
-        think('Agent', 'Asking ' + cfg.model + ' which changes to test.');
-        try {
-          const ps = await Promise.race([G.proposeChecks(cfg, L, summary, t => think(cfg.model, t, 'gemini')), late(PROPOSE_WAIT_S, cfg.model)]);
-          if (cancelled()) return;
-          ps.forEach(p => actions.push(Object.assign({}, p, { source: 'Gemini' })));
-          think('Agent', cfg.model + ' proposed: ' + (ps.map(p => F.actionLabel(p)).join(', ') || 'nothing') + '.');
-        } catch (e) { think('Agent', 'Proposals failed (' + e.message + '). Testing the search changes only.'); }
-      } else think('Agent', 'No API key in Setup: testing the search changes only, and the guide is a template.');
+      think('Agent', 'Asking the server agent (Gemini 4 Hydrogen) which changes to test.');
+      try {
+        const ps = await Promise.race([FEED.advisorPropose({ layout: L, summary }, ev => think(ev.model || 'Gemini', ev.text, 'gemini')), late(PROPOSE_WAIT_S, 'Proposals')]);
+        if (cancelled()) return;
+        ps.forEach(p => actions.push(Object.assign({}, p, { source: 'Gemini' })));
+        think('Agent', 'Gemini proposed: ' + (ps.map(p => F.actionLabel(p)).join(', ') || 'nothing') + '.');
+      } catch (e) { think('Agent', 'Proposals unavailable (' + e.message + '). Testing the search changes only.'); }
 
       think('Agent', 'Testing ' + actions.length + ' changes, each on the same ' + n + ' scenarios.');
       let tested = 0;
@@ -187,17 +187,15 @@
           crowdModel: 'crush when more than 16 people queue per metre of door width; random trips; a fallen person blocks the cell and gets up after 25 s' },
         tests: tests.map(t => ({ change: t.label, source: t.source, reason: t.reason, valid: t.valid, meanLost: t.meanLost, lostChange: t.lostChange,
           crushFalls: t.crushFalls, crushChange: t.crushChange, betterRuns: t.betterRuns, worseRuns: t.worseRuns, meanSeconds: t.meanSeconds })) };
-      let guide = null, by = 'Template from the numbers (no API key).';
-      if (cfg.key) {
-        progress(1, 1, 'Writing the guide…');
-        think('Agent', 'Asking ' + cfg.deep + ' to write the advice guide from these numbers.');
-        try {
-          guide = await Promise.race([G.adviseGuide(cfg, facts, t => think(cfg.deep, t, 'gemini')), late(GUIDE_WAIT_S, cfg.deep)]);
-          by = 'Written by ' + cfg.deep + ' from the measured runs. Changes were proposed by search and ' + cfg.model + ', and tested by the simulator.';
-        } catch (e) { think('Agent', 'Guide failed (' + e.message + '). Showing the template guide.'); by = 'Template from the numbers (' + e.message + ').'; }
-      }
+      let guide = null, by = '';
+      progress(1, 1, 'Writing the guide…');
+      think('Agent', 'Asking the server agent (Gemini 4 Neon) to write the advice guide from these numbers.');
+      try {
+        guide = await Promise.race([FEED.advisorGuide({ facts }, ev => think(ev.model || 'Gemini', ev.text, 'gemini')), late(GUIDE_WAIT_S, 'The guide')]);
+        by = 'Written by Gemini 4 Neon on the server from the measured runs. Changes were proposed by search and Gemini 4 Hydrogen, and tested by the simulator.';
+      } catch (e) { think('Agent', 'Guide unavailable (' + e.message + '). Showing the template guide.'); by = 'Template from the numbers (' + e.message + ').'; }
       if (cancelled()) return;
-      guide = guide || G.fallbackGuide({ summary, tests });
+      guide = guide || A.fallbackGuide({ summary, tests });
       lastGuide.guide = guide;
       showGuide(guide, by);
       progress(1, 1, 'Done: ' + n + ' scenarios, ' + tests.length + ' changes tested.');
@@ -208,6 +206,33 @@
     } finally {
       if (my === job) { running = false; $('advRun').textContent = 'Run analysis'; }
     }
+  }
+
+  /* ---- Chat: the assistant panel (assistant.js) gets its answers from the server agent. ---- */
+  const history = [];   // [{role, text}], sent back so follow-up questions have context
+  const status = text => { $('agentConnection').textContent = text; };
+  const agentService = {
+    async ask(question) {
+      const layout = F.clone(app().layout());
+      app().log('Advisor: "' + question.slice(0, 80) + '"');
+      const reply = await FEED.agentAsk({ question, history: history.slice(-6), layout, fireRate: app().fireRate() }, ev => {
+        if (ev.type === 'step') { status(ev.text); app().log('Advisor: ' + ev.text); }
+        else if (ev.type === 'thought') status('Thinking: ' + String(ev.text).replace(/\*\*/g, '').split('\n')[0].slice(0, 80));
+      });
+      history.push({ role: 'user', text: question }, { role: 'assistant', text: reply.text });
+      if (reply.replay) { app().replay(reply.replay); app().log('Advisor replays: ' + reply.replay.label); }
+      return reply;
+    }
+  };
+  /* Connect when this page can reach the agent: the organizer's laptop (port 8765) with the server running. */
+  if (FEED.presenter && window.TwinAssistant) {
+    const tryConnect = () => FEED.info().then(info => {
+      clearInterval(retry);
+      window.TwinAssistant.connect(agentService);
+      if (!info.ready) status('Connected · the server has no API key yet (add it in Settings)');
+    }).catch(() => {});
+    const retry = setInterval(tryConnect, 5000);
+    tryConnect();
   }
 
   $('advisorTab').addEventListener('click', () => setOpen(!document.body.classList.contains('advising')));

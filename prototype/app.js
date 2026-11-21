@@ -635,7 +635,7 @@
 
   /* For the Advisor tab (advisor.js): the twin on screen, the Gemini settings, and showing one of its scenarios here. */
   window.FireApp = {
-    layout: () => state.layout, cfg, fireRate: () => +$('rate').value,
+    layout: () => state.layout, fireRate: () => +$('rate').value, log,
     replay(s) {
       reset(s.ignitions, s.events, { seed: s.seed, crowd: true });
       state.label = 'Advisor scenario ' + s.id; showLabel();

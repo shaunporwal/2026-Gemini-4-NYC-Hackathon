@@ -173,7 +173,69 @@
     return { lost, falls, runs: results.length };
   }
 
-  const api = { KINDS, scenarios, runOne, runAll, summarize, searchActions, testActions, heat };
+  /* One named scenario (for the agent): spec = {kind, room?, exit?, door?, seed?}. Fire starts at the floor cell nearest
+   * the room's centre. Returns {scenario} or {error}. */
+  function makeScenario(layout, spec) {
+    const kind = KINDS[spec.kind] ? spec.kind : 'fire', probe = new F.Sim(F.clone(layout));
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    const s = { id: 1, kind, seed: Math.max(1, Math.round(+spec.seed) || 7), ignitions: [], events: [] };
+    const cellXY = i => ({ x: i % layout.width, y: (i / layout.width) | 0 });
+    if (kind === 'fire' || kind === 'fall') {
+      const ri = layout.rooms.findIndex(r => same(r.name, spec.room));
+      if (ri < 0) return { error: 'unknown room "' + spec.room + '". Rooms: ' + layout.rooms.map(r => r.name).join(', ') };
+      const r = layout.rooms[ri], cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < probe.N; i++) {
+        if (probe.roomOf[i] !== ri || probe.type[i] !== F.FLOOR) continue;
+        const d = (i % layout.width + 0.5 - cx) ** 2 + (((i / layout.width) | 0) + 0.5 - cy) ** 2;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) return { error: 'room "' + r.name + '" has no floor' };
+      s.room = r.name;
+      s.ignitions.push(Object.assign({ tick: 0 }, cellXY(best)));
+    }
+    if (kind === 'fall') {
+      const o = probe.openings.find(x => same(x.ref.id, spec.door || spec.exit)) || probe.openings.find(x => !x.ref.locked);
+      s.fallAt = o.ref.id;
+      s.events.push(Object.assign({ tick: 20, type: 'fall' }, cellXY(o.cells[0])));
+    }
+    if (kind === 'crush' || kind === 'blocked') s.events.push({ tick: 0, type: 'alarm' });
+    if (kind === 'blocked') {
+      const e = layout.exits.find(x => same(x.id, spec.exit));
+      if (!e) return { error: 'unknown exit "' + spec.exit + '". Exits: ' + layout.exits.map(x => x.id).join(', ') };
+      s.blocked = e.id;
+      s.events.push({ tick: 0, type: 'block', id: e.id });
+    }
+    s.label = KINDS[kind] + (s.room ? ' · fire in ' + s.room : '') + (s.fallAt ? ' · fall at ' + s.fallAt : '') + (s.blocked ? ' · ' + s.blocked + ' blocked' : '');
+    return { scenario: s };
+  }
+
+  /* Advice guide from the numbers alone, for when Gemini is not reachable. Same format as the server's guide. */
+  function fallbackGuide(facts) {
+    const s = facts.summary, b = s.bottlenecks[0], room = s.fireRooms[0];
+    const good = facts.tests.filter(t => t.valid && t.lostChange < 0 && t.betterRuns > t.worseRuns);
+    const lead = s.causes.crush > s.causes.fire ? 'crowd crush at doorways' : 'fire spread before people got out';
+    const falls = s.causes.trips + s.causes.fallsAtDoorways;
+    return {
+      headline: 'Across ' + s.runs + ' runs, ' + s.overall.meanLost + ' of ' + s.occupants + ' people were lost on average; most losses came from ' + lead + '.',
+      prevalent: [
+        b && { hazard: 'Crowd crush', where: b.name, howOften: 'long queue in ' + b.busyRuns + ' of ' + s.runs + ' runs (up to ' + b.maxPeak + ' people)', impact: b.crushFalls + ' falls in the press' },
+        room && { hazard: 'Fire', where: room.room, howOften: room.runs + ' runs started here', impact: room.meanLost + ' lost on average' },
+        falls ? { hazard: 'Falls', where: 'routes and doorways', howOften: falls + ' falls in all runs', impact: 'a fallen person blocks the way until helped up' } : null
+      ].filter(Boolean),
+      during: [
+        b && { when: 'Queue at ' + b.id + ' over 20 people', do: 'Send a steward to ' + b.id + ' to slow the flow and direct people to the next open exit.' },
+        { when: 'Fire or smoke seen', do: 'Start the alarm, announce the open exits by name, keep people away from the fire room.' },
+        { when: 'A person falls in a queue', do: 'Stop the flow behind them, help them up, then restart the flow.' }
+      ].filter(Boolean),
+      prevent: good.slice(0, 5).map(t => ({ action: t.label, priority: t.lostChange <= -3 ? 'high' : 'medium',
+        evidence: 'mean lost ' + t.lostChange + ' per run, crush falls ' + t.crushChange + ' (' + t.betterRuns + ' runs better, ' + t.worseRuns + ' worse)' })),
+      watch: b ? ['Queue length at ' + b.id + ' (over 20 people: act)'] : [],
+      limits: 'Fire, smoke and crush are demo heuristics on a 1 m grid, not calibrated engineering models.'
+    };
+  }
+
+  const api = { KINDS, scenarios, makeScenario, runOne, runAll, summarize, searchActions, testActions, heat, fallbackGuide };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);
