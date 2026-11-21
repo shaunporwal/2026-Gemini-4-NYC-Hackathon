@@ -10,6 +10,17 @@ phone /camera?id=cam-hall-ne ──JPEG ~1/s──► POST /frame/{cameraId} ─
 browser (web/src/feed) ◄──── WebSocket /ws ◄── Observation ◄────────────┘
 ```
 
+## Two modes
+| Mode | Set | Phones pick | Observation gets |
+|---|---|---|---|
+| **Room (default)** | `VENUE=malin` (a preset in `prototype/layouts.js`, read with Node) or `VENUE=path/to/layout.json` | A **room** of the prototype layout. No camera pose, no room guessing | `room` (the room name), `peopleCount`, `exits[].id` for exits on that room's walls. No floor positions: the prototype places a room's count inside the room |
+| Grid | `MAP=../web/public/maps/demo-hall.json` (and `VENUE=`) | A posed camera from the v2 map | `people` floor positions in cells, `exits[].cells` |
+
+Room mode feeds Shaun's prototype directly:
+`FireSim.applyObservation(layout, {rooms: [{name: o.room, people: o.peopleCount}], openings: o.exits.map(e => ({id: e.id, locked: e.blocked}))})`.
+Several phones = several rooms at once (tested: 3 rooms in parallel, about 0.5–0.9 s per update each). One phone per room;
+two phones in one room would overwrite each other's count.
+
 ## Run
 ```bash
 cd server
@@ -18,6 +29,7 @@ python -m venv .venv
 echo GEMINI_API_KEY=... > .env                               # gitignored
 .venv/Scripts/python -m uvicorn app:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
+Room mode needs Node.js on the PATH (it reads `prototype/layouts.js`).
 Phones only allow the camera over **HTTPS**, so tunnel it (this also gets around venue Wi-Fi blocking device-to-device traffic):
 ```bash
 cloudflared tunnel --url http://localhost:8000     # or: ngrok http 8000

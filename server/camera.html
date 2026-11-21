@@ -34,7 +34,7 @@ let running = false, sent = 0, wakeLock = null, audio = null, lastAudio = '';
 if (!cam) {  // no id: list the map's cameras to pick from
   document.getElementById('b').style.display = 'none';
   fetch('/').then(r => r.json()).then(j => {
-    s.textContent = `Map "${j.map}". Pick the camera this phone is:`;
+    s.textContent = `${j.map}. Pick where this phone is:`;
     document.getElementById('list').innerHTML = Object.entries(j.cameras)
       .map(([id, x]) => `<a href="${x.page}">${x.name} (${id})</a>`).join('');
   });

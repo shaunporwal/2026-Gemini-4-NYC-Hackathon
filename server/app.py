@@ -9,7 +9,8 @@ Run:   uvicorn app:app --host 0.0.0.0 --port 8000
 Phone: https://<your-tunnel>/camera?id=cam-hall-ne
 
 Env flags:
-  MAP=../web/public/maps/demo-hall.json   map whose cameras we serve
+  VENUE=malin     room mode (default): a preset in prototype/layouts.js or a layout .json; one phone per room
+  MAP=...json     grid mode instead: a schema-v2 map with posed cameras (positions in cells)
   BASELINE=1      Hydrogen on every frame, no Decisions gating (the comparison baseline)
   HEARTBEAT_S=3   re-count at least this often while people are present
   COUNT_CONF=0.7  Decisions' count range overrides a stale Hydrogen count at this confidence
@@ -29,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 import perception as P
-from geometry import MapInfo, jpeg_aspect
+from geometry import MapInfo, VenueInfo, jpeg_aspect, load_venue
 
 HERE = Path(__file__).parent
 MAP_PATH = Path(os.getenv("MAP", HERE.parent / "web" / "public" / "maps" / "demo-hall.json"))
@@ -47,7 +48,10 @@ AUDIO_TTL_S = float(os.getenv("AUDIO_TTL_S", "10"))  # an alarm/scream stays in 
 METRICS = HERE / "metrics.csv"
 EVAL_DIR = HERE / "eval_frames"
 
-MAP = MapInfo(MAP_PATH)
+# Room mode (default): VENUE = a preset in prototype/layouts.js or a layout .json; each phone picks a room.
+# Grid mode: set MAP (and VENUE="") to use a schema-v2 map with posed cameras (positions in cells).
+VENUE = os.getenv("VENUE", "" if os.getenv("MAP") else "malin")
+MAP = VenueInfo(load_venue(VENUE, HERE.parent / "prototype" / "layouts.js")) if VENUE else MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
 events: dict[str, asyncio.Event] = {}
 cams: dict[str, dict] = {}  # per-camera working state
@@ -97,13 +101,14 @@ def observation(cam_id: str) -> dict:
         evs.append(c["audio"])
     o = {
         "cameraId": cam_id,
+        **({"room": MAP.cameras[cam_id]["room"]} if "room" in MAP.cameras.get(cam_id, {}) else {}),
         "timestamp": int((c["stream"]["lastFrame"] or time.time()) * 1000),
         "peopleCount": c["count"],
         "density": P.DENSITY[max(0, min(4, round(c["crowding"])))],
         "events": evs,
         "people": c["people"],
         "hazards": [{"type": c["hazard"], "confidence": round(c["hazard_conf"], 2)}] if c["hazard"] != "none" else [],
-        "exits": [{"cells": g, "blocked": blocked, "p": round(c["exit_p"], 2)} for g in c["exits"]]
+        "exits": [{**g, "blocked": blocked, "p": round(c["exit_p"], 2)} for g in c["exits"]]
         if c["exit_p"] is not None else [],
         "stream": dict(c["stream"]),
     }
