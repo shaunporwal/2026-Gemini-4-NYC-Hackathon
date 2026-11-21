@@ -16,7 +16,7 @@
   };
   let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
-  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim() });
+  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
 
   function el(tag, text, cls) {

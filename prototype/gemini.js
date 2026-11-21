@@ -8,16 +8,24 @@
   const INLINE_MAX = 15 * 1048576;   // bytes; larger files use the Files API
   const POLL_MS = 2000, POLL_MAX = 90;
   const NOTES_MAX = 6, NOTE_LEN = 160;
+  const PHOTO_MAX = 1024;            // px, long side of a room photo sent to the fast model
+  const FAST = { thinking: 'low' }, DEEP = { deep: true };
 
-  /* cfg = {key, model}. parts = Gemini "parts" array. Returns the reply text. */
-  async function call(cfg, parts, wantJson) {
+  /* cfg = {key, model, deep}. Two Gemini 4 models, one job each:
+   *   cfg.model (Hydrogen) = fast reads: room photos, PA text. Low thinking level: about 6 s for a photo.
+   *   cfg.deep (Neon or Carbon) = slow reasoning: floor plan -> layout, fix proposals. Default thinking level.
+   * parts = Gemini "parts" array. opts = {deep, thinking}. Returns the reply text. */
+  async function call(cfg, parts, wantJson, opts) {
     if (!cfg.key) throw new Error('no API key');
-    const res = await fetch(ENDPOINT + encodeURIComponent(cfg.model) + ':generateContent', {
+    opts = opts || {};
+    const config = wantJson ? { responseMimeType: 'application/json' } : {};
+    if (opts.thinking) config.thinkingConfig = { thinkingLevel: opts.thinking };
+    const res = await fetch(ENDPOINT + encodeURIComponent((opts.deep && cfg.deep) || cfg.model) + ':generateContent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: wantJson ? { responseMimeType: 'application/json' } : {}
+        generationConfig: config
       })
     });
     if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + (await res.text()).slice(0, 300));
@@ -70,6 +78,15 @@
     }
     if (f.state !== 'ACTIVE') throw new Error('Gemini: file is ' + f.state);
     return { file_data: { mime_type: f.mimeType || file.type, file_uri: f.uri } };
+  }
+
+  /* A photo scaled down to PHOTO_MAX px on its long side. Smaller upload, faster reply. */
+  async function shrink(file) {
+    if (!/^image\//.test(file.type)) return file;
+    const img = await createImageBitmap(file), k = Math.min(1, PHOTO_MAX / Math.max(img.width, img.height));
+    const canvas = new OffscreenCanvas(Math.round(img.width * k), Math.round(img.height * k));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return new File([await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })], file.name, { type: 'image/jpeg' });
   }
 
   /* Video and large files go through the Files API. Small images and PDFs go inline. */
@@ -130,20 +147,21 @@
     doors: L.doors.map(d => ({ id: d.id, x: d.x, y: d.y })),
     exits: L.exits.map(e => ({ id: e.id, name: e.name, x: e.x, y: e.y })) });
 
-  async function layoutFrom(cfg, prompt, files, onStatus) {
+  async function layoutFrom(cfg, prompt, files, onStatus, opts) {
     if (!cfg.key) throw new Error('no API key');
     const parts = [{ text: prompt }];
     for (const file of files) parts.push(await mediaPart(cfg, file, onStatus));
     onStatus('reading ' + files.map(f => f.name).join(' + ') + '…');
-    return parseJson(await call(cfg, parts, true));
+    return parseJson(await call(cfg, parts, true, opts));
   }
 
   /* files = floor plan and/or walkthrough video. Returns a new layout (+ notes). */
-  const layoutFromMedia = (cfg, files, example, onStatus) => layoutFrom(cfg, NEW_RULES + '\n' + JSON.stringify(example), files, onStatus);
+  const layoutFromMedia = (cfg, files, example, onStatus) => layoutFrom(cfg, NEW_RULES + '\n' + JSON.stringify(example), files, onStatus, DEEP);
 
   /* files = photos or video of rooms of `layout`. Returns an observation for FireSim.applyObservation.
    * The reply is a small patch, not a whole layout: that keeps the call fast. */
-  const observe = (cfg, files, layout, onStatus) => layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)), files, onStatus);
+  const observe = async (cfg, files, layout, onStatus) =>
+    layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)), await Promise.all(files.map(shrink)), onStatus, FAST);
 
   /* Layout "notes" as shown to the user: what Gemini saw or heard. */
   const notesOf = layout => (Array.isArray(layout.notes) ? layout.notes : []).slice(0, NOTES_MAX).map(n => String(n).slice(0, NOTE_LEN));
@@ -162,7 +180,7 @@
     const text = await call(cfg, [{ text:
       'You are the public-address voice of a building fire system. Write the next announcement for the occupants: ' +
       'maximum 2 short sentences, calm, imperative, plain English. Use only these facts. Do not name an exit that is not in "open". ' +
-      'Reply with the announcement text only.\nFacts: ' + JSON.stringify(st) }], false);
+      'Reply with the announcement text only.\nFacts: ' + JSON.stringify(st) }], false, FAST);
     return text.trim().slice(0, 300);
   }
 
@@ -176,7 +194,7 @@
       'A deterministic simulator will score each proposal, so be specific. reason = 1 short sentence.\n' +
       'Return JSON: {"proposals":[...]}\n' +
       'Layout: ' + JSON.stringify(ctx.layout) + '\nFire start points (tick,x,y): ' + JSON.stringify(ctx.ignitions) +
-      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true);
+      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true, DEEP);
     const list = parseJson(text).proposals;
     return (Array.isArray(list) ? list : []).filter(p => p && typeof p === 'object').slice(0, 3)
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));

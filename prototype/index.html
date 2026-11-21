@@ -59,7 +59,10 @@
     <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
   </div>
   <label>Gemini API key <span id="keyState"></span><input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
-  <label>Model <input id="model" type="text" value="gemini-4-hydrogen"></label>
+  <div class="row">
+    <label>Fast model: photos, PA <input id="model" type="text" value="gemini-4-hydrogen"></label>
+    <label>Reasoning: plan, fixes <input id="deep" type="text" value="gemini-4-neon"></label>
+  </div>
   <div class="options">
     <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
     <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>

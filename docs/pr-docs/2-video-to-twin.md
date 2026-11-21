@@ -41,7 +41,11 @@ Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (onl
 - [x] Layout: optional `wallColor`, room `color`, `objects`; Gemini prompts ask for them
 - [ ] Test with a real key: does Gemini return colors and objects from a video, and do they look right in 3D
 - [x] Room photo -> update this twin (patch reply, not a whole layout). Real key, photo of a hackathon room: 42 s, matched "Central Lounge & Dedicated Desks", 13 people, 19 furniture items, 5 notes
-- [ ] Check that the matched room, the head count and the exit sign note are right (not checked against the building)
+- [x] Ground truth for that photo: West Booth Lounge. Gemini's room match was WRONG in every variant tested (see `docs/EVAL.md`)
+- [x] Decisions API (`gemini-decision-1`) called from the browser: works, about 1 s, room choice + crowd level + blocked exit in 1 call (test only, not in the app yet)
+- [x] 2 Gemini 4 models, 1 job each: Hydrogen (photos, PA; thinking low) and Neon (floor plan, fixes). Photo update: 42 s -> 9 s
+- [ ] Room match with reference photos (enrolment), then put Decision 1 in the app as the fast first step
+- [ ] Phone page: several phones send room photos to the twin (phone -> Mac on the venue wifi works)
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
@@ -62,7 +66,8 @@ Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (onl
 
 - Furniture is drawn only: the simulator ignores `objects`, so people walk through tables.
 - 3D colors and furniture from a real Gemini reply were tested with 1 photo only. `wallColor` from 1 room colors the walls of the whole building.
-- Photo update took 42 s with `gemini-4-hydrogen`: still slow for a live stage step.
+- Room matching from room names alone fails (1 of 1 photo wrong, with confidence 0.57-0.71).
+- Neon for floor plan -> twin and for fix proposals is untested.
 - 3D is not checked at phone size or against the UI rules audit.
 - `web/` and `prototype/` still use 2 map formats; no converter yet.
 
