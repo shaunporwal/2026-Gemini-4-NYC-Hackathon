@@ -12,7 +12,8 @@ Note (added on import): the prototype files named below (`AGENTS.md`, `index.htm
 - Goal: fun + a wow moment on stage. Not a product.
 - Prizes: 1st $7,500 · 2nd $5,000 · 3rd $2,500 · Best use of Managed Agents $5,000 · Best use of Shopify $2,500 (Shop Cash).
 - Judging line from the organizers: "something that wasn't possible last week."
-- Unknown, ask the organizers: submission cutoff, demo length.
+- Submissions are due at 17:00 EST (organizer email, 2026-11-21 10:45). Demo length: unknown, ask in Discord #questions.
+- Event details + problem statements: https://cerebralvalley.ai/e/gemini-4-nyc/details . Venue address in the organizer emails: 220 W 26th St.
 
 ## 2. Idea
 

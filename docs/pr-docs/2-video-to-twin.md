@@ -35,7 +35,8 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
 - [ ] Save the best result as a preset in `layouts.js` (stage fallback); replace invented exits X1, X2
-- [ ] Hackathon API resources (key, credits, model IDs) from the organizers: not found in email, see Known Limits
+- [x] Hackathon API resources found in email (2026-11-21): a hackathon Google account from Google DeepMind for ai.dev (credentials stay in email, never in the repo); models Argon, Carbon, Neon, Hydrogen
+- [ ] Sign in at ai.dev with the hackathon account (incognito window) and create an API key
 
 ## Known Limits
 
