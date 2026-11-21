@@ -9,7 +9,7 @@
   :root {
     color-scheme: dark;
     --bg: #0c0f14; --panel: #11151c; --control: #1b212c; --line: #323b4a; --text: #e6e9ee; --muted: #9aa4b2;
-    --accent: #2b6cb0; --focus: #7cc4ff; --ok: #4ade80; --bad: #ff6b61; --video: #000;
+    --accent: #2b6cb0; --focus: #7cc4ff; --ok: #4ade80; --bad: #ff6b61; --video: #000; --scrim: rgba(0, 0, 0, .62);
     --gutter: 12px; --gap: 8px; --tap: 48px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
   }
   * { box-sizing: border-box; }
@@ -56,8 +56,14 @@
   /* Step 2: the camera. */
   #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
   #view { flex: 1; min-height: 0; position: relative; border-radius: var(--radius); overflow: hidden; background-color: var(--video); }
-  video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--gutter); text-align: center; color: var(--muted); }
+  video, #poster { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #poster { position: absolute; inset: 0; }
+  /* What to do now. Over the last frame after a recording; over black before the first one. */
+  #note { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gutter);
+          padding: var(--gutter); text-align: center; color: var(--text); background-color: var(--scrim); }
+  #note p { margin: 0; max-width: 30ch; }
+  #note a { min-height: var(--tap); padding: 0 20px; display: flex; align-items: center; border-radius: var(--radius); border: 1px solid var(--focus);
+            background-color: var(--control); color: inherit; text-decoration: none; font-weight: 600; }
   /* Facts: one key-value row, not tiles. */
   #facts { display: flex; justify-content: space-between; gap: var(--gap); padding: 0 2px; }
   #facts div { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
@@ -93,7 +99,11 @@
 </section>
 
 <section id="cam" hidden>
-  <div id="view"><video id="v" autoplay playsinline muted></video><div id="note">Starting the camera…</div></div>
+  <div id="view">
+    <video id="v" autoplay playsinline muted></video>
+    <img id="poster" alt="Last frame sent" hidden>
+    <div id="note"><p id="noteText"></p><a id="noteTwin" href="/app/" hidden>See it on the Twin</a></div>
+  </div>
   <div id="facts">
     <div><span>People</span><b id="fPeople">–</b></div>
     <div><span>Fire</span><b id="fHazard">–</b></div>
@@ -116,7 +126,9 @@ const clipS = +(q.get('clip') || 2);         // audio clip length in seconds
 const $ = id => document.getElementById(id);
 const v = $('v'), c = $('c'), ctx = c.getContext('2d');
 const TEXT = {
-  start: 'Start camera', stop: 'Stop',
+  start: 'Start camera', stop: 'Stop', again: 'Record again',
+  idle: 'Tap Start camera to send live video of this room, or One photo for a single picture.',
+  starting: 'Starting the camera…',
   blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
   sent: 'Photo sent. Gemini is reading it…', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…',
   lost: 'This room is not on the twin now. Tap the room name and pick again.',
@@ -128,6 +140,8 @@ let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
 let session = 0;
 
 const show = (el, on) => { el.toggleAttribute('hidden', !on); };   // works for SVG too
+/* The message over the camera view: what is happening, or what to do next. twin = also offer the Twin page. */
+function note(text, twin) { $('noteText').textContent = text; show($('noteTwin'), !!twin); show($('note'), true); }
 function status(text, cls) { $('status').textContent = text; $('status').className = cls || ''; }
 
 /* Step 1 -> step 2. Called from a tap, so the browser lets the camera start at once. */
@@ -138,6 +152,9 @@ function enter(room, startNow) {
   $('where').textContent = 'Your room (tap to change):';
   $('change').textContent = room;
   show($('pick'), false); show($('cam'), true); show($('change'), true);
+  show($('poster'), false);
+  $('b').textContent = TEXT.start;
+  note(TEXT.idle);
   if (startNow) start();
 }
 
@@ -216,6 +233,9 @@ async function start() {
   // iOS: the audio context must be made and resumed inside the tap, before any wait. Made later, it stays suspended and no sound is sent.
   const ac = withMic ? new (window.AudioContext || window.webkitAudioContext)() : null;
   if (ac) ac.resume().catch(() => {});
+  sent = 0;
+  show($('poster'), false);
+  note(TEXT.starting);
   const drop = () => { if (ac) ac.close().catch(() => {}); };
   let stream;
   try {
@@ -224,7 +244,7 @@ async function start() {
   } catch (e) {
     drop();
     if (my !== session) return;
-    $('note').textContent = TEXT.blocked; show($('note'), true);
+    note(TEXT.blocked);
     status(e.message, 'bad');
     return;
   }
@@ -242,9 +262,16 @@ async function start() {
 
 function stop() {
   session++;
+  const wasRunning = running;
   running = false; stopAudio();
   if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
-  $('b').textContent = TEXT.start;
+  if (!wasRunning) return;
+  // After a recording: keep the last frame on screen and say what was sent and what to do next.
+  $('b').textContent = TEXT.again;
+  if (sent && c.width) { $('poster').src = c.toDataURL('image/jpeg', 0.7); show($('poster'), true); }
+  note(sent ? 'Sent ' + sent + ' frames of ' + cam + '. Gemini counted ' + $('fPeople').textContent + ' people. The room on the Twin now shows this.'
+            : TEXT.idle, sent > 0);
+  status('');
 }
 
 $('b').onclick = () => (running ? stop() : start());

@@ -17,7 +17,7 @@ CONSTANT Fixed
 VARIABLES page,    \* "pick", "camera", "twin"
           sel,     \* a room is highlighted on the picker
           room,    \* a room was chosen (the phone remembers it)
-          cam,     \* "off", "asking" (permission prompt), "live", "blocked"
+          cam,     \* "off", "asking" (permission prompt), "live", "blocked", "done" (stopped after a recording)
           view,    \* twin view: "2d", "3d", "live"
           sim,     \* "idle", "running", "done"
           fix      \* a fix was found and can be applied
@@ -38,9 +38,9 @@ Use    == page = "pick" /\ sel /\ page' = "camera" /\ room' = TRUE /\ cam' = "as
 \* ---- Camera
 Allow  == cam = "asking" /\ cam' = "live" /\ UNCHANGED <<page, sel, room, view, sim, fix>>
 Deny   == cam = "asking" /\ cam' = "blocked" /\ UNCHANGED <<page, sel, room, view, sim, fix>>
-Start  == page = "camera" /\ cam \in {"off", "blocked"} /\ cam' = "asking"
+Start  == page = "camera" /\ cam \in {"off", "blocked", "done"} /\ cam' = "asking"
           /\ UNCHANGED <<page, sel, room, view, sim, fix>>
-Stop   == page = "camera" /\ cam = "live" /\ cam' = "off" /\ UNCHANGED <<page, sel, room, view, sim, fix>>
+Stop   == page = "camera" /\ cam = "live" /\ cam' = "done" /\ UNCHANGED <<page, sel, room, view, sim, fix>>
 ChangeRoom == page = "camera" /\ page' = "pick" /\ cam' = "off" /\ room' = FALSE /\ sel' = FALSE
               /\ UNCHANGED <<view, sim, fix>>
 
@@ -69,4 +69,18 @@ Spec == Init /\ [][Next]_vars
 
 \* The camera is never left on behind another page.
 CameraOnlyOnItsPage == cam # "off" => page = "camera"
+
+(* What the screen tells the person to do next, in each state. "none" = the screen is silent
+   (a black camera view with a lone button). A path can exist and the person still be lost. *)
+Hint == CASE page = "pick" /\ ~sel            -> "tap your room"
+          [] page = "pick" /\ sel             -> "button names the room"
+          [] page = "camera" /\ cam = "asking"  -> "starting the camera"
+          [] page = "camera" /\ cam = "live"    -> "readings, Stop"
+          [] page = "camera" /\ cam = "blocked" -> "why, and what to allow"
+          [] page = "camera" /\ cam = "off"     -> IF Fixed THEN "tap Start camera or One photo" ELSE "none"
+          [] page = "camera" /\ cam = "done"    -> IF Fixed THEN "what was sent, See it on the Twin, Record again" ELSE "none"
+          [] page = "twin"                      -> "announcement bar"
+
+\* Every screen says what to do next.
+EveryScreenSaysWhatNext == Hint # "none"
 =============================================================================

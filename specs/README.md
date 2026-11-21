@@ -39,6 +39,10 @@ Fix: a Camera / Twin switch on both pages. The phone remembers the chosen room, 
 
 A dead end here means "no sequence of taps gets there". It does not measure how easy the path is to find.
 
+That gap showed at once: after Stop, the camera page was a black box with a lone button. A path existed, and the person was lost. So `AppFlow` now also states what each screen tells the person to do next (`Hint`) and checks `EveryScreenSaysWhatNext`. As first built it fails after pick room -> Use -> allow -> Stop (the exact taps Shaun made). Now: after a recording the page keeps the last frame, says what was sent and what Gemini counted, and offers "See it on the Twin" and "Record again".
+
+`Hint` is a claim about the page written by hand: the model checks that no state is left without one, not that the words are good.
+
 ## Not modelled
 
 Gemini's answers (the model lets it say anything), the network's timing beyond "late", and the simulator's physics. The model is the page's control flow, not its code:
