@@ -11,7 +11,7 @@
    * than bare floor. Chairs and plants are drawn but people walk past them. */
   const BLOCKING = { table: 1, desk: 1, sofa: 1, counter: 1, bar: 1, stage: 1, shelf: 1, screen: 1 };
   const FURNITURE_FUEL = 2;      // fire spreads onto a furniture cell this many times faster
-  const VIEW_HALF = 0.5;         // half of a phone's field of view, in radians (same as the cone that is drawn)
+  const VIEW_HALF = 0.85;        // half of a phone's field of view, in radians (same as the cone that is drawn)
   /* Is cell (x, y) inside the view of a phone at v = {x, y, yaw}? Yaw 0 = north (-y), 90 = east (+x). */
   function inView(v, x, y) {
     const dx = x + 0.5 - v.x, dy = y + 0.5 - v.y;

@@ -10,6 +10,7 @@
   const DETAIL_S = 12;   // while its phone streams, a room is rebuilt from the camera this often
   const DETAIL_ROOMS = 3;   // rooms that Gemini reads at the same time (1 for each phone)
   const TWIN_LIVE = 'Freeze twin', TWIN_FROZEN = 'Resume live';
+  const LIVE_GONE_S = 10;   // with "only what phones see" on: a room with no frame for this long is emptied
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
@@ -283,14 +284,30 @@
       for (const r of state.layout.rooms) if (r.name in state.guessed) r.people = state.guessed[r.name];
       state.guessed = null;
     }
+    if (on) dropStopped(true);
     $('liveOnly').checked = !!state.guessed;
     state.layout.liveOnly = !!state.guessed;   // travels with the layout, so a copy of the page accepts an empty twin
     $('json').value = JSON.stringify(state.layout);
     remember(); syncFeed();
     if (state.sim.alarmTick < 0) reset();
     const n = state.layout.rooms.reduce((a, r) => a + r.people, 0);
-    log(on ? 'Only what phones have seen: ' + n + ' people in ' + state.seen.size + ' room' + (state.seen.size === 1 ? '' : 's') + '. Rooms without a phone are empty.'
+    log(on ? 'Only what phones see now: ' + n + ' people. Rooms with no phone sending are empty.'
            : 'Rooms without a phone use the floor plan\'s guess again: ' + n + ' people.');
+  }
+
+  /* With "only what phones see" on: a room whose phone stopped sending is emptied too (its last count is
+   * kept in state.guessed, and comes back when the switch goes off). A frozen twin keeps its last capture. */
+  function dropStopped(quiet) {
+    if (!state.guessed || state.frozen || !state.sim || state.sim.alarmTick >= 0) return;
+    const now = Date.now() / 1000, gone = [];
+    for (const r of state.layout.rooms) {
+      const o = live.get(r.name), sending = o && o.stream && now - (o.stream.lastFrame || 0) <= LIVE_GONE_S;
+      if (r.people && !(r.name in state.guessed) && !sending) { state.guessed[r.name] = r.people; r.people = 0; gone.push(r.name); }
+    }
+    if (!gone.length || quiet) return;
+    $('json').value = JSON.stringify(state.layout);
+    remember(); syncFeed(); reset();
+    log('No phone is sending from ' + gone.join(', ') + ': emptied.');
   }
 
   /* restored = {plan, seen} from remember(): L is then a camera-informed layout, not a fresh plan. */
@@ -535,6 +552,7 @@
     on('setup', 'click', () => $('setupDlg').showModal());
     on('freeze', 'click', () => setFrozen(!state.frozen));
     on('liveOnly', 'change', () => setLiveOnly($('liveOnly').checked));
+    setInterval(dropStopped, 2000);
     on('pause', 'click', () => {
       state.running = !state.running && (comparison
         ? !(comparison.baseline.done && comparison.guided.done)
