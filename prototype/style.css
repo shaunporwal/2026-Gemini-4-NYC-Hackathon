@@ -1,0 +1,120 @@
+/* Look only. Every color, size and timing is a token. Phone first (390 px), dark only. */
+:root {
+  color-scheme: dark;
+  --bg: #0c0f14;
+  --panel: #11151c;
+  --control: #1b212c;
+  --control-hover: #252d3a;
+  --line: #232a36;
+  --line-strong: #323b4a;
+  --text: #e6e9ee;
+  --muted: #9aa4b2;
+  --accent: #2b6cb0;
+  --accent-hover: #3179c4;
+  --focus: #7cc4ff;
+  --pa-bg: #2a1a12;
+  --pa-line: #7a3b1c;
+  --pa-text: #ffd9b8;
+  --ok: #4ade80;
+  --trapped: #ff4fd8;
+  --bad: #ff6b61;
+  --scrim: rgba(0, 0, 0, .6);
+
+  --gutter: 12px;
+  --gap: 8px;
+  --tap: 44px;
+  --radius: 8px;
+  --side-w: 340px;
+  --side-h: 24dvh;
+  --dialog-w: 420px;
+  --fs: 14px;
+  --fs-small: 12px;
+  --fs-input: 16px;
+  --fs-title: 18px;
+  --mono: ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100dvh; margin: 0; overflow: hidden; }
+body {
+  display: grid; gap: var(--gap); padding: var(--gutter);
+  grid-template: "head" auto "pa" auto "stage" minmax(0, 1fr) "stats" auto "side" var(--side-h) "dock" auto / minmax(0, 1fr);
+  background-color: var(--bg); color: var(--text);
+  font: var(--fs)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow-wrap: anywhere;
+}
+
+header { grid-area: head; display: flex; align-items: center; gap: var(--gap); }
+h1 { margin: 0; font-size: var(--fs-title); white-space: nowrap; }
+header select { flex: 1; min-width: 0; }
+header button { flex: none; }
+
+#pa { grid-area: pa; min-height: var(--tap); display: flex; align-items: center; padding: 6px var(--gutter); border-radius: var(--radius); background-color: var(--pa-bg); border: 1px solid var(--pa-line); color: var(--pa-text); font-weight: 600; }
+#pa:empty::before { content: "Tap the floor to start a fire."; font-weight: 400; }
+
+#stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+canvas { cursor: crosshair; border-radius: 4px; max-width: 100%; max-height: 100%; }
+.tag { position: absolute; top: 0; right: 0; padding: 2px 8px; border-radius: 4px; background-color: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-small); }
+
+/* Facts: one key-value row, not tiles. */
+#stats { grid-area: stats; display: flex; justify-content: space-between; gap: var(--gap); padding: 0 2px; }
+.fact { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.fact span { color: var(--muted); font-size: var(--fs-small); }
+.fact b { font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
+.fact.out b { color: var(--ok); }
+.fact.trapped b { color: var(--trapped); }
+.fact.down b { color: var(--bad); }
+
+/* The one scrolling region. */
+aside { grid-area: side; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 4px var(--gutter); border-radius: var(--radius); background-color: var(--panel); border: 1px solid var(--line); }
+aside::-webkit-scrollbar { display: none; }
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); margin-bottom: var(--gap); }
+th, td { text-align: left; padding: 4px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; }
+td:nth-child(n+2), th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.bad { color: var(--bad); font-weight: 700; }
+td.note { text-align: left; color: var(--muted); padding-left: var(--gutter); white-space: normal; }
+
+footer { grid-area: dock; display: grid; gap: var(--gap); }
+.row { display: flex; gap: var(--gap); }
+.row > * { flex: 1 1 0; min-width: 0; }
+.status { display: flex; gap: var(--gap); height: 18px; overflow: hidden; color: var(--muted); font: 11px/18px var(--mono); }
+#layoutName { flex: none; }
+#log { flex: 1; min-width: 0; }
+#log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+button, select, input[type=text], input[type=password], input[type=file], textarea {
+  min-height: var(--tap); padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line-strong);
+  background-color: var(--control); color: inherit; font: inherit;
+}
+button { cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background-color: var(--accent); border-color: var(--accent); }
+select, input[type=text], input[type=password], input[type=file], textarea { width: 100%; background-color: var(--bg); font-size: var(--fs-input); }
+textarea { display: block; resize: none; font-family: var(--mono); }
+input[type=range] { display: block; width: 100%; height: var(--tap); margin: 0; accent-color: var(--accent); }
+input[type=checkbox] { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) { background-color: var(--control-hover); }
+  button.primary:hover:not(:disabled) { background-color: var(--accent-hover); }
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+
+dialog { width: min(var(--dialog-w), calc(100vw - 2 * var(--gutter))); max-height: calc(100dvh - 2 * var(--gutter)); overflow-y: auto; scrollbar-width: none; padding: var(--gutter); border-radius: var(--radius); border: 1px solid var(--line-strong); background-color: var(--panel); color: var(--text); }
+dialog::-webkit-scrollbar { display: none; }
+dialog[open] { display: grid; gap: var(--gap); }
+dialog::backdrop { background-color: var(--scrim); }
+.dlgHead { display: flex; align-items: center; justify-content: space-between; }
+h2 { margin: 0; font-size: var(--fs-title); }
+label { display: block; color: var(--muted); font-size: var(--fs-small); }
+.options { border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.options label { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); padding: 0 var(--gutter); color: var(--text); font-size: var(--fs); }
+.options label + label { border-top: 1px solid var(--line-strong); }
+
+/* Wide: map on the left, facts + tables + dock in one right column. */
+@media (min-width: 820px) {
+  body { grid-template: "head head" auto "pa pa" auto "stage stats" auto "stage side" minmax(0, 1fr) "stage dock" auto / minmax(0, 1fr) var(--side-w); column-gap: var(--gutter); }
+  header select { flex: none; width: var(--side-w); }
+  h1 { flex: 1; }
+}
