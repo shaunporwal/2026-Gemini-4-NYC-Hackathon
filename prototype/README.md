@@ -58,6 +58,10 @@ Each waiting person adds the duration of each crowd substep to the total, in per
 
 **Crowd model** (`sim.js`, demo heuristics, not calibrated): a cell holds one person, so crush pressure comes from the queue at an opening, people waiting per metre of its width. Above 16 per metre, people within 2 cells of the opening build up pressure; at 8 pressure-seconds they fall. A fallen person (amber) blocks their cell, breathes smoke, is lost if the press continues (24 pressure-seconds), and otherwise gets up after 25 s and walks at half speed. Random trips (more likely in thick smoke) use their own RNG, so fire and placement stay matched. Timed events: `fall` (the person nearest a cell falls), `block` (an opening becomes unusable), `alarm` (evacuation without fire). Setup → "Crowd crush and falls in the twin" turns the crowd model on for ordinary runs too; it is off by default, so existing fire-only results are unchanged.
 
+### Camera warnings: person down, crowd surge
+
+Each phone frame also asks the Decisions API whether anyone is lying on the floor and whether people are pushing or surging. When a room newly reports `person_down` or `crowd_surge` (2 frames in a row at 0.7 or more), the Activity log notes it and the Assistant panel shows a warning card with the probability and the room's doors. **What if?** asks the agent to simulate that risk on the twin as it is now (a fall at the room's door during an evacuation without fire, or a full evacuation for a surge) and to say what staff should do. Nothing is simulated until the organizer clicks (DECISIONS C9).
+
 Layouts (`layouts.js`):
 
 - **The Malin Chelsea (approx.)**: the hackathon venue, traced by hand from the public floor plan. Street doors (7th Ave, 26th St) follow the plan. The 2 locked exits (X1, X2) and all head counts are assumptions for the demo.

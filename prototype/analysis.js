@@ -180,7 +180,8 @@
     const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     const s = { id: 1, kind, seed: Math.max(1, Math.round(+spec.seed) || 7), ignitions: [], events: [] };
     const cellXY = i => ({ x: i % layout.width, y: (i / layout.width) | 0 });
-    if (kind === 'fire' || kind === 'fall') {
+    const fallOnly = kind === 'fall' && !spec.room;   // a fall during an evacuation with no fire (e.g. a camera saw someone down)
+    if (kind === 'fire' || (kind === 'fall' && !fallOnly)) {
       const ri = layout.rooms.findIndex(r => same(r.name, spec.room));
       if (ri < 0) return { error: 'unknown room "' + spec.room + '". Rooms: ' + layout.rooms.map(r => r.name).join(', ') };
       const r = layout.rooms[ri], cx = r.x + r.w / 2, cy = r.y + r.h / 2;
@@ -197,16 +198,16 @@
     if (kind === 'fall') {
       const o = probe.openings.find(x => same(x.ref.id, spec.door || spec.exit)) || probe.openings.find(x => !x.ref.locked);
       s.fallAt = o.ref.id;
-      s.events.push(Object.assign({ tick: 20, type: 'fall' }, cellXY(o.cells[0])));
+      s.events.push(Object.assign({ tick: fallOnly ? 10 : 20, type: 'fall' }, cellXY(o.cells[0])));
     }
-    if (kind === 'crush' || kind === 'blocked') s.events.push({ tick: 0, type: 'alarm' });
+    if (kind === 'crush' || kind === 'blocked' || fallOnly) s.events.push({ tick: 0, type: 'alarm' });
     if (kind === 'blocked') {
       const e = layout.exits.find(x => same(x.id, spec.exit));
       if (!e) return { error: 'unknown exit "' + spec.exit + '". Exits: ' + layout.exits.map(x => x.id).join(', ') };
       s.blocked = e.id;
       s.events.push({ tick: 0, type: 'block', id: e.id });
     }
-    s.label = KINDS[kind] + (s.room ? ' · fire in ' + s.room : '') + (s.fallAt ? ' · fall at ' + s.fallAt : '') + (s.blocked ? ' · ' + s.blocked + ' blocked' : '');
+    s.label = (fallOnly ? 'Evacuation with a fall, no fire' : KINDS[kind]) + (s.room ? ' · fire in ' + s.room : '') + (s.fallAt ? ' · fall at ' + s.fallAt : '') + (s.blocked ? ' · ' + s.blocked + ' blocked' : '');
     return { scenario: s };
   }
 

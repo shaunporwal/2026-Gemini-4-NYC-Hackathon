@@ -50,7 +50,7 @@ curl localhost:8000/observations
 ## Models (one job each; entry rule: DECISIONS #19)
 | Model | Env var | Job | When |
 |---|---|---|---|
-| Decisions API `gemini-decision-1` | `DECISION_MODEL` | Calibrated yes/no, score and choice answers: people present, a count range (0, 1, 2, 3, 4–5, 6–9, 10+), density 0–4, fire/smoke, exit blocked (only if the camera sees an exit). Audio clips: alarm / screaming | Every frame, every clip |
+| Decisions API `gemini-decision-1` | `DECISION_MODEL` | Calibrated yes/no, score and choice answers: people present, person down, crowd surge, a count range (0, 1, 2, 3, 4–5, 6–9, 10+), density 0–4, fire/smoke, exit blocked (only if the camera sees an exit). Audio clips: alarm / screaming | Every frame, every clip |
 | Gemini 4 Hydrogen `gemini-4-hydrogen` | `VISION_MODEL` | Head count, each person's foot point in the image, one-line scene summary | In the background (one call per camera at a time): someone appears, Decisions' count range changes, or every `HEARTBEAT_S`. A change during a call re-counts the newest frame as soon as it finishes |
 
 `THINKING=low` sets Hydrogen's `thinking_level` (`minimal` is rejected by Hydrogen; low media resolution is not faster).
@@ -78,6 +78,7 @@ Switching the browser from WebSocket to polling (or back) is a client-side chang
 | `density` | Decisions crowding score rounded: empty, sparse, moderate, crowded, packed |
 | `hazards`, events `fire`/`smoke` | Decisions, raised only after `HAZARD_STREAK` frames at ≥ `HAZARD_CONF` |
 | `exits`, event `exit_blocked` | Exits = groups of touching `E` cells inside the camera's cone with line of sight. Blocked when P ≥ `EXIT_BLOCKED_P`. If a camera sees two exits, one answer covers both |
+| events `person_down`/`crowd_surge`, `crowdRisk` | Decisions on every frame: "is anyone lying on the floor?" and "are people pushing or surging?". `crowdRisk` = the P(yes) of this frame; the events need `CROWD_STREAK` frames in a row at ≥ `CROWD_P`. The twin shows a warning with a "What if?" button for the agent; it never starts a simulation (DECISIONS C9, C13) |
 | events `alarm`/`screaming` | Decisions on the last audio clip, kept for `AUDIO_TTL_S` |
 | `stream` | Latency, frame and call counts, last error |
 
@@ -92,6 +93,8 @@ Switching the browser from WebSocket to polling (or back) is a client-side chang
 | `HAZARD_CONF` / `HAZARD_STREAK` | 0.7 / 2 | Hazard needs this confidence on N frames in a row |
 | `EXIT_BLOCKED_P` | 0.6 | Probability threshold for an exit to count as blocked |
 | `AUDIO_CONF` / `AUDIO_TTL_S` | 0.7 / 10 | Audio event threshold and how long it stays in `events` |
+| `CROWD_P` / `CROWD_STREAK` | 0.7 / 2 | Person down / crowd surge: probability per frame, and frames in a row |
+| `GROUNDED_P` | 0.5 | Agent number check (Decisions on text): an answer below this is rewritten once, then flagged |
 | `SAVE_FRAMES=1` | 0 | Save frames + predictions to `eval_frames/` (eval sessions only, **off for the demo**) |
 
 ## Not verified yet (check first against the real API)
