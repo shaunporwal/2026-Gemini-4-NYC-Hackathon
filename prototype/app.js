@@ -11,10 +11,12 @@
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
   const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
-  /* Two views of the same sim: 2D canvas and 3D voxels. Same interface; the 3D one starts on first use. */
+  /* Three views of the same sim: 2D canvas, 3D voxels, live phone cameras. Same interface; each starts on first use. */
   const VIEWS = {
-    '2d': { canvas: 'cv', make: window.FireRender, other: '3d' },
-    '3d': { canvas: 'cv3d', make: window.FireRender3D, other: '2d' }
+    '2d': { canvas: 'cv', make: window.FireRender },
+    '3d': { canvas: 'cv3d', make: window.FireRender3D },
+    'live': { canvas: 'liveView', make: { create: (node, wrap) => window.FireRenderLive.create(node, wrap,
+      { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info }) } }
   };
   let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
@@ -108,8 +110,7 @@
     Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
     v.view = v.view || v.make.create($(v.canvas), $('stage'));
     view = v.view;
-    $('dim').textContent = v.other.toUpperCase();
-    $('dim').dataset.next = v.other;
+    document.querySelectorAll('#views button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
     if (state.sim) view.fit(state.sim);
   }
 
@@ -234,7 +235,7 @@
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
     Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
-    on('dim', 'click', guarded('3D view', () => setView($('dim').dataset.next)));
+    document.querySelectorAll('#views button').forEach(b => b.addEventListener('click', guarded('View', () => setView(b.dataset.view))));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
     on('reset', 'click', () => reset());

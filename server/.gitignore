@@ -4,3 +4,4 @@ eval_results.csv
 eval_frames/
 sample_frames/
 holdout_frames/
+.public_url

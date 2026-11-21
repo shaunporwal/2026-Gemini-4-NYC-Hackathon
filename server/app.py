@@ -24,7 +24,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 import perception as P
 from geometry import MapInfo, jpeg_aspect
@@ -42,6 +42,16 @@ AUDIO_TTL_S = float(os.getenv("AUDIO_TTL_S", "10"))  # an alarm/scream stays in 
 
 METRICS = HERE / "metrics.csv"
 EVAL_DIR = HERE / "eval_frames"
+PUBLIC_URL_FILE = HERE / ".public_url"  # written when the tunnel starts: the https address phones use
+
+
+def phone_url() -> str | None:
+    """Link to the phone page, or None if no tunnel address is known."""
+    try:
+        base = PUBLIC_URL_FILE.read_text().strip()
+    except OSError:
+        return None
+    return base.rstrip("/") + "/camera" if base.startswith("https://") else None
 
 MAP = MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
@@ -284,6 +294,27 @@ async def post_twin(request: Request):
     return {"ready": P.has_key(), "rooms": len(rooms)}
 
 
+@app.get("/frame/{cam_id}/latest.jpg")
+async def latest_jpeg(cam_id: str):
+    """The newest frame of one camera, for the live view on the twin page."""
+    if cam_id not in latest_frame:
+        return JSONResponse({"error": "no frame"}, status_code=404)
+    return Response(latest_frame[cam_id][0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/qr.svg")
+async def qr_svg():
+    """QR code of the phone link, for the big screen."""
+    import io
+    import segno
+    url = phone_url()
+    if not url:
+        return JSONResponse({"error": "no public address"}, status_code=404)
+    out = io.BytesIO()
+    segno.make(url, error="m").save(out, kind="svg", scale=8, border=2, dark="#0c0f14", light="#ffffff")
+    return Response(out.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
+
 @app.websocket("/ws")
 async def ws_feed(ws: WebSocket):
     """Server -> browser: {"type":"observation","observation":Observation}, latest per camera on connect.
@@ -324,5 +355,6 @@ async def camera_page():
 @app.get("/")
 async def index():
     return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms, "plan": plan,
+            "phoneUrl": phone_url(),
             "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
             "ws": "/ws", "observations": "/observations"}

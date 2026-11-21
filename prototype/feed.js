@@ -33,5 +33,10 @@
     open();
   }
 
-  window.Feed = { configure, listen };
+  /* What the live view needs from the server: the newest frame of a room, and how phones join. */
+  const frameUrl = room => 'http://' + HOST + '/frame/' + encodeURIComponent(room) + '/latest.jpg?t=' + Date.now();
+  const qrUrl = () => 'http://' + HOST + '/qr.svg?t=' + Date.now();
+  const info = () => fetch('http://' + HOST + '/').then(r => r.json());
+
+  window.Feed = { configure, listen, frameUrl, qrUrl, info };
 })();
