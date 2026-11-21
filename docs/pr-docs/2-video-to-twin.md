@@ -1,4 +1,4 @@
-# PR 2: Video and floor plan -> twin (Gemini multimodal)
+# PR 2: Video and floor plan -> twin (Gemini multimodal) + 3D voxel view
 
 Status: in progress
 
@@ -10,8 +10,8 @@ Show Gemini's multimodal input on stage: a phone walkthrough video of the venue 
 
 ## Scope
 
-In: `prototype/gemini.js`, `prototype/app.js`, `prototype/index.html`, prototype docs, this doc.
-Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera feed.
+In: `prototype/gemini.js`, `prototype/app.js`, `prototype/index.html`, `prototype/render3d.js`, `prototype/vendor/`, `prototype/layouts.js`, prototype docs, this doc. Also merges `main` (Jacob's `web/` map + voxel scene) into the branch.
+Out: changes to `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera feed.
 
 ## Design
 
@@ -24,6 +24,12 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - Gemini returns `notes` (max 6): what it saw or heard, and where. The side panel shows them under "Gemini saw".
 - The simulator validates every layout before it loads (`validateLayout`). A bad reply shows an error in the status line; the old twin stays.
 
+### 3D view
+
+- A 3D / 2D button in the header switches the view of the same running sim. `render3d.js` has the same interface as `render.js`.
+- The look is ported from `web/src/render/scene.ts` (one instanced box per cell, voxel people). The `web/` app is not embedded: it is TypeScript + Vite and has no fire or crowd sim yet.
+- Layout gains optional `wallColor`, room `color` and `objects` (furniture). The Gemini prompts ask for them from a video, so the 3D view looks like the room.
+
 ## Implementation Checklist
 
 - [x] UI: 2 file inputs in Setup (new twin; update this twin); "Gemini saw" table in the side panel
@@ -31,6 +37,9 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - [x] `gemini.js`: prompts for video, plan + video, and update; `notes` in the schema
 - [x] `app.js`: wire both inputs; status line shows upload / processing / reading
 - [x] Test with a real key: floor plan PDF -> twin. `gemini-4-hydrogen`, about 105 s, valid layout: 29 rooms, 28 doors, 4 exits, 6 notes
+- [x] 3D voxel view of the live sim (fire, smoke, people, locked doors), orbit + zoom, click to ignite; 3D / 2D toggle
+- [x] Layout: optional `wallColor`, room `color`, `objects`; Gemini prompts ask for them
+- [ ] Test with a real key: does Gemini return colors and objects from a video, and do they look right in 3D
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
@@ -49,10 +58,16 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - The API key is typed into the page. Root `CLAUDE.md` says Gemini is only called from `server/`; that rule covers `web/`, and this prototype does not follow it.
 - Setup dialog is taller than a 390x664 phone screen now; it scrolls inside with no scroll bar.
 
+- Furniture is drawn only: the simulator ignores `objects`, so people walk through tables.
+- 3D colors and furniture were tested with hand-written values, not with a Gemini reply.
+- 3D is not checked at phone size or against the UI rules audit.
+- `web/` and `prototype/` still use 2 map formats; no converter yet.
+
 ## Smoke Tests
 
 - [x] Browser, `fetch` stubbed: video -> upload start, upload, poll, `generateContent` with a `file_data` part -> layout loads, "Gemini saw" shows 2 notes, no console errors
 - [x] No key: status line shows "no API key"; twin unchanged
 - [x] Page still has no scroll (pane size)
 - [x] Real key: PDF -> twin loads; "Gemini saw" shows 6 notes
+- [x] 3D: Gemini floor plan preset renders; hand-added colors + furniture render; click starts a fire; run completes (267 out, 26 lost); orbit and zoom work; no console errors; page has no scroll
 - [ ] Real key: the 2 video tests in the checklist

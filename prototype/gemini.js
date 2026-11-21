@@ -85,6 +85,8 @@
     'doors: {id,x,y,w,h,locked} on a wall shared by 2 rooms. Not on a corner.',
     'exits: {id,name,x,y,w,h,locked} on a wall between a room and the outside. Not on a corner.',
     'Each room needs a door or an exit.',
+    'Optional, for the 3D view: each room can have "color": "#rrggbb" (its floor color). The layout can have "wallColor": "#rrggbb".',
+    'Optional objects: maximum 80 items {type,x,y,w,h,color}. type = table, desk, chair, sofa, counter, bar, stage, shelf, plant or screen. Large furniture inside a room, not on a wall cell. color = "#rrggbb".',
     'notes: maximum 6 short strings. Each note says one thing you saw or heard in the input and where (with the video time, if there is one).'
   ].join('\n');
 
@@ -92,6 +94,7 @@
     'A video is a walkthrough of the venue. Find the rooms and their connections from the path of the camera.',
     'Estimate sizes from people, doors (about 1 m wide) and furniture.',
     'Set locked=true for a door or exit that is blocked, chained or closed off in the video.',
+    'Make the result look like the video: give the floor, wall and furniture colors that you see, and put the furniture where you see it.',
     'For each room in the video, people = the count that you see. Use the audio too (crowd noise, alarms, speech about exits).'
   ].join('\n');
 
@@ -101,7 +104,7 @@
     SCHEMA_RULES, VIDEO_RULES,
     'If there is no video, people = a realistic count for the room type.',
     'If there is a floor plan and a video: take the geometry from the floor plan; take exits, locked state and people counts from the video.',
-    'Return only the JSON object. Example of the format (add "notes"):'
+    'Return only the JSON object. Example of the format (add "notes"; add colors and "objects" if you can see them):'
   ].join('\n');
 
   const UPDATE_RULES = [
@@ -109,7 +112,7 @@
     'Correct the layout from the video: add, move or remove exits and doors; set locked; set people for each room.',
     'Do not change a room rectangle unless the video clearly contradicts it. Keep width and height.',
     SCHEMA_RULES, VIDEO_RULES,
-    'Return only the full corrected JSON object, with "notes". Current layout:'
+    'Return only the full corrected JSON object, with "notes", colors and "objects". Current layout:'
   ].join('\n');
 
   async function layoutFrom(cfg, prompt, files, onStatus) {

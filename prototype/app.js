@@ -7,7 +7,12 @@
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
   const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
-  const view = window.FireRender.create($('cv'), $('stage'));
+  /* Two views of the same sim: 2D canvas and 3D voxels. Same interface; the 3D one starts on first use. */
+  const VIEWS = {
+    '2d': { canvas: 'cv', make: window.FireRender, other: '3d' },
+    '3d': { canvas: 'cv3d', make: window.FireRender3D, other: '2d' }
+  };
+  let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
   const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
@@ -49,6 +54,16 @@
   function showSeen(notes) {
     $('seen').replaceChildren(...notes.map(n => { const tr = el('tr'); tr.append(el('td', n)); return tr; }));
     $('seenTable').hidden = !notes.length;
+  }
+
+  function setView(mode) {
+    const v = VIEWS[mode];
+    Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
+    v.view = v.view || v.make.create($(v.canvas), $('stage'));
+    view = v.view;
+    $('dim').textContent = v.other.toUpperCase();
+    $('dim').dataset.next = v.other;
+    if (state.sim) view.fit(state.sim);
   }
 
   function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
@@ -169,7 +184,8 @@
     });
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
-    on('cv', 'click', onCanvasClick);
+    Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
+    on('dim', 'click', guarded('3D view', () => setView($('dim').dataset.next)));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
     on('reset', 'click', () => reset());
@@ -190,6 +206,7 @@
     on('walk', 'change', fromGemini('Video update', (files, status) => G.updateFromVideo(cfg(), files[0], state.layout, status)));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
+    setView('2d');
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);
   }

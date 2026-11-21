@@ -19,6 +19,8 @@ For the Gemini steps, paste an API key in the side panel (it stays in the tab).
 
 Click a door or exit to lock or unlock it. Red = locked.
 
+The **3D / 2D** button in the header switches the view of the same simulation. In 3D: drag to orbit, scroll to zoom, click the floor to start a fire. A layout can carry `wallColor`, a `color` for each room and `objects` (furniture); Gemini fills these from a video so the 3D view looks like the room. The simulator ignores furniture: people walk through it.
+
 Layouts (`layouts.js`):
 
 - **The Malin Chelsea (approx.)**: the hackathon venue, traced by hand from the public floor plan. Street doors (7th Ave, 26th St) follow the plan. The 2 locked exits (X1, X2) and all head counts are assumptions for the demo.

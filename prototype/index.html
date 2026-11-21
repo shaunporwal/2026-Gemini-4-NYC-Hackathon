@@ -10,6 +10,7 @@
 <header>
   <h1>Fire Twin</h1>
   <select id="preset" aria-label="Layout"></select>
+  <button id="dim">3D</button>
   <button id="setup">Setup</button>
 </header>
 
@@ -17,6 +18,7 @@
 
 <section id="stage">
   <canvas id="cv"></canvas>
+  <canvas id="cv3d" hidden></canvas>
   <span class="tag">Sample data</span>
 </section>
 
@@ -71,6 +73,8 @@
 <script src="layouts.js"></script>
 <script src="sim.js"></script>
 <script src="render.js"></script>
+<script src="vendor/three.bundle.js"></script>
+<script src="render3d.js"></script>
 <script src="gemini.js"></script>
 <script src="app.js"></script>
 </body>
