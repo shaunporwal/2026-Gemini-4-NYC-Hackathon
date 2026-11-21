@@ -7,6 +7,7 @@
   const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626' };
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
+  const MARK = { ms: 2500, px: 3, color: '#7cc4ff' };
 
   /* Words of a room name that fit a box: full name on 1 or 2 lines, else its short form.
    * Short form = the text in brackets ("Bricken Office (10)" -> "10"), else the first word. */
@@ -71,7 +72,20 @@
       }
     }
 
-    function draw(sim, t) {
+    /* A room that a phone just reported: a ring that fades. marks = Map(room name -> time). */
+    function flash(sim, t, marks) {
+      if (!marks) return;
+      for (const r of sim.L.rooms) {
+        const age = t - (marks.has(r.name) ? marks.get(r.name) : -Infinity);
+        if (age < 0 || age > MARK.ms) continue;
+        ctx.globalAlpha = 1 - age / MARK.ms;
+        ctx.strokeStyle = MARK.color; ctx.lineWidth = MARK.px * dpr;
+        ctx.strokeRect(r.x * cs, r.y * cs, r.w * cs, r.h * cs);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function draw(sim, t, marks) {
       const { W, N } = sim;
       for (let i = 0; i < N; i++) {
         const x = (i % W) * cs, y = ((i / W) | 0) * cs;
@@ -101,6 +115,7 @@
         ctx.arc((p.i % W + 0.5) * cs, (((p.i / W) | 0) + 0.5) * cs, cs * (down ? 0.28 : 0.38), 0, 6.283);
         ctx.fill();
       }
+      flash(sim, t, marks);
       roomLabels(sim);
     }
 

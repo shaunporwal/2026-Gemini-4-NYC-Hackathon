@@ -64,6 +64,7 @@
 
   /* ---- Live feed: phones -> perception server -> Observations, one per room. ---- */
   const live = new Map();   // room name -> latest Observation
+  const marks = new Map();  // room name -> time of its newest Observation: the map flashes that room
 
   /* Tell the feed server the key and the rooms. Quiet if the server is off: the twin works without it. */
   function syncFeed() {
@@ -89,7 +90,10 @@
   function onObservation(o) {
     const room = state.layout.rooms.find(r => r.name === o.cameraId);
     if (!room) return;
+    const before = live.get(o.cameraId), said = x => x && [x.peopleCount, x.density].concat(x.events).join();
     live.set(o.cameraId, o);
+    marks.set(o.cameraId, performance.now());
+    if (said(before) !== said(o)) log('Phone in ' + o.cameraId + ': ' + o.peopleCount + ' people, ' + [o.density].concat(o.events).join(', ') + '.');
     showLive();
     const sim = state.sim, idle = sim.alarmTick < 0;
     if (idle && o.stream && o.stream.ok && o.peopleCount !== room.people) {
@@ -219,7 +223,7 @@
       checkAnnounce();
       if (sim.done) onDone();
     }
-    view.draw(sim, t);
+    view.draw(sim, t, marks);
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
     requestAnimationFrame(frame);

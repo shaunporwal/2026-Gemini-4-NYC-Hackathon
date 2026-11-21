@@ -104,7 +104,9 @@ const v = $('v'), c = $('c'), ctx = c.getContext('2d');
 const TEXT = {
   start: 'Start camera', stop: 'Stop',
   blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
-  sent: 'Photo sent. Watch the big screen.', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…'
+  sent: 'Photo sent. Gemini is reading it…', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…',
+  lost: 'This room is not on the twin now. Tap the room name and pick again.',
+  slow: 'No answer yet. Look at the big screen.', onTwin: ' The twin now shows this.'
 };
 let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
 /* Session number. Each start and each stop makes a new session. A permission answer, a frame or a sound
@@ -134,6 +136,7 @@ function leave() {
 
 /* Room picker: the floor plan and the list show the same rooms. A tap on one selects it in both;
  * the button below then starts the camera for that room. */
+const RESULT_MS = 1500, RESULT_TRIES = 16;
 const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
 const picked = { name: null, marks: new Map() };   // room name -> [list row, plan rect]
 
@@ -261,7 +264,8 @@ function sendClip(chunks, n, rate, room) {
 function report(j, ms) {
   $('fPeople').textContent = j.peopleCount;
   $('fHazard').textContent = j.hazard;
-  if (j.ok) status('frames ' + sent + ' · upload ' + ms + ' ms · Gemini ' + (j.latencyMs == null ? '-' : j.latencyMs) + ' ms', 'ok');
+  if (!j.known) status(TEXT.lost, 'bad');
+  else if (j.ok) status('frames ' + sent + ' · upload ' + ms + ' ms · Gemini ' + (j.latencyMs == null ? '-' : j.latencyMs) + ' ms', 'ok');
   else status(j.error || TEXT.warming, j.error ? 'bad' : '');
 }
 
@@ -293,9 +297,30 @@ $('photo').onchange = async ev => {
   const img = await createImageBitmap(file), k = Math.min(1, 1024 / Math.max(img.width, img.height));
   c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); ctx.drawImage(img, 0, 0, c.width, c.height);
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
-  try { await postFrame(room, blob); if (room === cam) status(TEXT.sent, 'ok'); }
-  catch (e) { status(TEXT.failed + e.message, 'bad'); }
+  try {
+    const sent = await postFrame(room, blob);
+    if (room !== cam) return;
+    if (!sent.known) return status(TEXT.lost, 'bad');
+    status(TEXT.sent);
+    const o = await resultOf(room, sent.timestamp);
+    if (room !== cam) return;
+    if (!o) return status(TEXT.slow);
+    $('fPeople').textContent = o.peopleCount;
+    $('fHazard').textContent = o.events.find(e => e === 'fire' || e === 'smoke') || 'none';
+    if (o.stream.error) status(o.stream.error, 'bad');
+    else status('Gemini: ' + o.peopleCount + ' people, ' + o.density + (o.events.length ? ', ' + o.events.join(', ') : '') + '.' + TEXT.onTwin, 'ok');
+  } catch (e) { status(TEXT.failed + e.message, 'bad'); }
 };
+
+/* Wait for Gemini's answer for a frame sent at server time `since`. Null if it takes too long. */
+async function resultOf(room, since) {
+  for (let n = 0; n < RESULT_TRIES; n++) {
+    await new Promise(r => setTimeout(r, RESULT_MS));
+    const o = (await (await fetch('/observations')).json()).observations[room];
+    if (o && o.timestamp >= since && o.stream.latencyMs != null && (o.stream.ok || o.stream.error)) return o;
+  }
+  return null;
+}
 </script>
 </body>
 </html>

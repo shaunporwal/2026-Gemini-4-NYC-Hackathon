@@ -247,7 +247,8 @@ async def post_frame(cam_id: str, request: Request):
     c["stream"]["lastFrame"] = now
     c["stream"]["frames"] += 1
     events[cam_id].set()
-    return {"cameraId": cam_id, "known": cam_id in MAP.cameras, "peopleCount": c["count"],
+    return {"cameraId": cam_id, "known": cam_id in rooms or cam_id in MAP.cameras, "timestamp": int(now * 1000),
+            "peopleCount": c["count"], "density": P.DENSITY[max(0, min(4, round(c["crowding"])))],
             "hazard": c["hazard"], "ok": c["stream"]["ok"], "latencyMs": c["stream"]["latencyMs"],
             "error": c["stream"]["error"]}
 
