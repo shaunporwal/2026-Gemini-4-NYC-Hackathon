@@ -29,9 +29,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import agent as AG
 import perception as P
 from geometry import MapInfo, VenueInfo, jpeg_aspect, load_venue
 
@@ -445,6 +446,69 @@ async def post_twin(request: Request):
         warmed["done"] = True
         asyncio.create_task(warmup())
     return {"ready": P.has_key(), "rooms": len(rooms)}
+
+
+def streamed(job):
+    """Run job(emit) in a thread; the response is NDJSON: progress events, then {"type": "result", ...} or {"type": "error"}."""
+    q: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    emit = lambda ev: loop.call_soon_threadsafe(q.put_nowait, ev)
+
+    async def work():
+        try:
+            emit({"type": "result", "result": await asyncio.to_thread(job, emit)})
+        except Exception as e:
+            emit({"type": "error", "text": f"{type(e).__name__}: {e}"[:300]})
+        emit(None)
+
+    async def lines():
+        task = asyncio.create_task(work())
+        while (ev := await q.get()) is not None:
+            yield json.dumps(ev) + "\n"
+        await task
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+def agent_request(request: Request, body: dict):
+    """The agent spends the API key: laptop only. Returns an error response, or None if the request can go ahead."""
+    if not is_local(request):
+        return JSONResponse({"error": "the agent answers on the organizer's laptop only"}, status_code=403)
+    if not P.has_key():
+        return JSONResponse({"error": "no API key on the server yet"}, status_code=503)
+    if not isinstance(body.get("layout", {}), dict) or len(json.dumps(body)) > 4 * LAYOUT_MAX_BYTES:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    return None
+
+
+@app.post("/agent/ask")
+async def agent_ask(request: Request):
+    """Chat with the agent. Body: {question, history: [{role, text}], layout (the page's snapshot), fireRate}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    question = str(body.get("question", "")).strip()
+    if not question or not isinstance(body.get("layout"), dict):
+        return JSONResponse({"error": "question and layout needed"}, status_code=400)
+    rate = float(body.get("fireRate") or 0.08)
+    return streamed(lambda emit: AG.ask(question, body.get("history") or [], body["layout"], rate, emit))
+
+
+@app.post("/advisor/propose")
+async def advisor_propose(request: Request):
+    """Advisor tab: changes to test. Body: {layout, summary}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    return streamed(lambda emit: AG.propose(body.get("layout") or {}, body.get("summary") or {}, emit))
+
+
+@app.post("/advisor/guide")
+async def advisor_guide(request: Request):
+    """Advisor tab: the advice guide. Body: {facts}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    return streamed(lambda emit: AG.guide(body.get("facts") or {}, emit))
 
 
 @app.get("/layout")

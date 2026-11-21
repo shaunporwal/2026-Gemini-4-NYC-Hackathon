@@ -21,8 +21,8 @@ agent can say "9 casualties, 3 of them among estimated people".
 | Type | What happens | Casualty rule | Status |
 |---|---|---|---|
 | **Fire + smoke** | Fire spreads from a start cell through fuel (floor, furniture). Smoke spreads faster, slows people and harms them. | Fire contact, or smoke dose over a limit ("down") | **Built** (`prototype/sim.js`) |
-| **Blocked / closed exits** | One or more doors or exits become unusable (blocked, locked, closed by staff). Usually combined with another event. | From the combined event | **Partly built**: openings can be locked and unlocked (`applyAction`); the server reports `exit_blocked` from cameras |
-| **Crowd crush / surge** | No hazard. Many people move at once: everyone heads for the exits, or a surge toward one point (a stage, a gate). | Local density above a dangerous level for long enough | Planned (doorway queue stats and waiting-time metrics are built) |
+| **Blocked / closed exits** | One or more doors or exits become unusable (blocked, locked, closed by staff). Usually combined with another event. | From the combined event | **Built**: locked in the layout, or blocked mid-run with a `block` event (`prototype/sim.js`); the server reports `exit_blocked` from cameras |
+| **Crowd crush / surge** | No hazard. Many people move at once: everyone heads for the exits, or a surge toward one point (a stage, a gate). | Local density above a dangerous level for long enough | **Built as a proxy** (`crowd` option): queue pressure per metre of opening width, falls that block cells, a `fall` event; see DECISIONS C11. Surge toward a target: planned |
 | **Generic danger zone** | An area becomes harmful or impassable and may spread: gas leak, flood, collapse, active threat. Parameters: start area, spread rate, lethality, passable or not. | Exposure inside the zone (dose, or immediate if lethal) | Planned |
 
 ### Parameters (first version)
