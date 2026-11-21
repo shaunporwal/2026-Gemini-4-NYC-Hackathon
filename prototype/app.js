@@ -29,10 +29,10 @@
         captures: FEED.captures, captureUrl: FEED.captureUrl,
         rebuild: (room, urls, poses) => rebuildRoom(room, urls, poses), busy: () => detail.busy.size > 0 }) } }
   };
-  let view = null;
+  let view = null, presetPicker = null;
   let comparison = null;
   let placingFire = false, snapshotAt = null, lastUiSecond = -1;
-  const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value, crowd: $('crowd').checked });
+  const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value, crowdMode: $('crowdMode').value, crowd: $('crowd').checked });
   const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
 
@@ -50,7 +50,7 @@
   /* One row format for both tables (runs, fix candidates). */
   function addRow(tbody, label, res, note) {
     const tr = el('tr');
-    [label, res.out + '/' + res.total, res.lost, res.seconds + ' s'].forEach((v, k) => tr.append(el('td', v, k === 2 && res.lost ? 'bad' : '')));
+    [label, res.out + '/' + res.total, res.lost, (res.elapsedSeconds ?? res.seconds).toFixed(1) + ' s'].forEach((v, k) => tr.append(el('td', v, k === 2 && res.lost ? 'bad' : '')));
     tbody.append(tr);
     if (note) { const td = el('td', note, 'note'); td.colSpan = 4; const r = el('tr'); r.append(td); tbody.append(r); }
   }
@@ -79,7 +79,7 @@
   }
 
   function updateQueues(sim) {
-    queueTick = sim.tick;
+    queueTick = sim.substep;
     const rows = sim.queueStats(), selection = $('queueOpening').value;
     trackedOpening = selection === '' ? -1 : Number(selection);
     if (trackedOpening < 0) {
@@ -94,12 +94,14 @@
     $('qWaiting').textContent = row?.waiting ?? 0;
     $('qPeak').textContent = row?.peak ?? 0;
     $('qPeople').textContent = row?.people ?? 0;
-    $('qWait').textContent = (row?.waitSeconds ?? 0) + ' person-s';
-    $('qLongest').textContent = (row?.maxWaitSeconds ?? 0) + ' s';
+    $('qWait').textContent = (row?.waitSeconds ?? 0).toFixed(1) + ' person-s';
+    $('qLongest').textContent = (row?.maxWaitSeconds ?? 0).toFixed(1) + ' s';
     $('qSmoke').textContent = smokeValue(row?.smokeSeconds ?? 0) + ' smoke-s';
     $('queueMeans').textContent = row?.people
       ? 'Each affected person averaged ' + (row.waitSeconds / row.people).toFixed(1) + ' s of waiting and ' + smokeValue(row.smokeSeconds / row.people) + ' smoke-s.'
-      : 'A person counts once per opening when their next step is blocked by another person in its queue.';
+      : sim.crowdMode === 'continuous'
+        ? 'Tracks people slowed by a crowd while approaching this opening, including their waiting time and modeled smoke exposure.'
+        : 'A person counts once per opening when their next step is blocked by another person in its queue.';
   }
 
   /* New sim on the current layout. With ignitions: replay that fire. events/extra: an Advisor scenario. */
@@ -112,10 +114,13 @@
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions, events }, extra));
     state.running = !!((ignitions && ignitions.length) || (events && events.length));
     state.acc = 0;
-    if (!state.running) $('pa').textContent = STATUS_IDLE;   // a fresh sim: restore the venue instructions
+    state.last = performance.now();
+    lastUiSecond = -1;
+    setStatus(state.running ? 'Replaying the same fire and crowd from the start.' : STATUS_IDLE);
     view.fit(state.sim);
     buildQueueMenu(state.sim);
     showLabel();
+    present(state.last);
   }
 
   /* What Gemini saw or heard in the last floor plan or video. Empty list = hide. */
@@ -244,6 +249,7 @@
     document.querySelectorAll('#views button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
     $('hint3d').hidden = mode !== '3d';
     $('mapLegend').hidden = mode === 'live';
+    $('stage').dataset.view = mode;   // the stylesheet hides the map's own labels over the camera pictures
     $('homeView').disabled = mode === 'live';
     if (state.sim) view.fit(state.sim);
   }
@@ -251,6 +257,7 @@
   function showLabel() {
     $('layoutName').textContent = state.layout.name + ' · ' + state.label;
     $('mapTitle').textContent = state.layout.name.replace(/\s*\(.*$/, '');
+    presetPicker?.sync();
   }
 
   /* Keep the camera-informed layout across a reload of this tab (the phones' work must not be lost on stage). */
@@ -306,9 +313,10 @@
   function loadLayout(L, restored) {
     const errs = F.validateLayout(L);
     if (errs.length) throw new Error(errs.join('; '));
-    const s = new F.Sim(L).stats();
+    const s = new F.Sim(L, simOpts()).stats();
     if (!s.total && !restored && !L.liveOnly) throw new Error('layout has no people');   // an emptied twin (only what phones have seen) is allowed
     if (s.trapped) log('Warning: ' + s.trapped + ' of ' + s.total + ' people have no route to an exit.');
+    if (s.unplaced) log(s.unplaced + ' requested occupants could not be placed with body clearance. The run models ' + s.total + ' of ' + s.requestedPeople + ' people.');
     window.TwinAssistant.clear();
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     state.plan = restored ? restored.plan : F.clone(L);
@@ -340,29 +348,32 @@
   function onDone() {
     // With "only what phones have seen" on, the twin holds a part of the crowd: a row for the whole floor plan would not compare.
     const r = state.sim.stats(), compare = state.seen.size && state.label === 'Baseline' && !state.guessed;
+    const summary = 'Run complete. ' + r.out + ' out, ' + r.down + ' down (model), ' + r.active + ' still inside.'
+      + (r.unplaced ? ' ' + r.unplaced + ' requested people could not be placed.' : '');
     state.running = false;
     state.lastIgn = state.sim.ignitions.slice();
     if (!compare) {
       addRow($('runs'), state.label, r);
-      return setStatus('Run complete. ' + r.out + ' out, ' + r.lost + ' lost.');
+      return setStatus(summary);
     }
     const p = F.run(state.plan, state.lastIgn, simOpts()), n = state.seen.size;
     addRow($('runs'), 'Floor plan only', p);
     addRow($('runs'), 'With phones (' + n + ' room' + (n > 1 ? 's' : '') + ')', r, 'Same fire. Phones changed: ' + [...state.seen].join(', ') + '.');
-    log('Same fire: the floor plan alone predicts ' + p.lost + ' lost of ' + p.total + '. With the phones: ' + r.lost + ' lost of ' + r.total + '.');
-    setStatus('Run complete. ' + r.lost + ' lost. The floor plan alone predicted ' + p.lost + '.');
+    log('Same fire: the floor plan alone has ' + p.lost + ' not out of ' + p.total + '. With the phones: ' + r.lost + ' not out of ' + r.total + '. Not out includes modeled down and still inside at the end.');
+    setStatus(summary + ' Floor plan only: ' + p.lost + ' not out.');
   }
 
   /* Candidates come from search (each locked opening) and from Gemini. The sim scores all of them. */
   async function findFix() {
     if (comparison) return log('Use Reset to leave the awareness comparison before finding layout fixes.');
     const ign = currentFire().slice();
+    const run = state.sim, layout = state.layout, options = simOpts();
     if (!ign.length) return log('Start a fire first.');
     $('fix').disabled = true;
     const locked = F.openingsOf(state.layout).filter(o => o.locked);
     const cands = locked.map(o => ({ action: { action: 'unlock', id: o.id }, source: 'Search' }));
     if (locked.length > 1) cands.push({ action: { action: 'unlock_all' }, source: 'Search' });
-    const base = F.run(state.layout, ign, simOpts());
+    const base = F.run(layout, ign, options);
     if (cfg().key) {
       try {
         log('Gemini: proposing fixes…');
@@ -371,14 +382,18 @@
           .forEach(p => cands.push({ action: p, source: 'Gemini', reason: p.reason }));
       } catch (e) { log('Fix: ' + e.message); }
     }
+    if (state.sim !== run) { $('fix').disabled = false; return; }
     const scored = new Map();
     for (const c of cands) {
+      // Let the controls paint between full scenario runs. Do not publish stale results after a reset.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (state.sim !== run) { $('fix').disabled = false; return; }
       c.label = F.actionLabel(c.action);
       const prev = scored.get(c.label);
       if (prev) { prev.source += ' + ' + c.source; prev.reason = prev.reason || c.reason; continue; }
-      c.layout = F.applyAction(state.layout, c.action);
+      c.layout = F.applyAction(layout, c.action);
       if (!c.layout) { log('Rejected (invalid): ' + c.label + ' from ' + c.source); continue; }
-      c.res = F.run(c.layout, ign, simOpts());
+      c.res = F.run(c.layout, ign, options);
       c.changes = c.action.action === 'unlock_all' ? locked.length : 1;   // equal result: prefer the smaller change
       scored.set(c.label, c);
     }
@@ -390,7 +405,7 @@
     state.fix = best && { layout: best.layout, label: best.label, ign };
     $('apply').disabled = !best;
     $('fix').disabled = false;
-    log(best ? 'Best fix: ' + best.label + ' (lost ' + base.lost + ' → ' + best.res.lost + ').' : 'No candidate is better than the baseline.');
+    log(best ? 'Best fix: ' + best.label + ' (not out ' + base.lost + ' → ' + best.res.lost + ').' : 'No candidate is better than the baseline.');
   }
 
   function applyFix() {
@@ -422,12 +437,13 @@
     };
     state.acc = 0;
     state.running = true;
+    state.last = performance.now();
     snapshotAt = new Date();
     state.lastIgn = ignitions;
     $('awarenessResults').hidden = false;
     $('awarenessConfig').textContent = 'Seed ' + SEED + ' · ' + familiar + ' familiar · cue for ' + second
       + ' at ' + cueSeconds + ' s after alarm · ' + Math.round(reception * 100) + '% reception. '
-      + 'Both runs end at 120 s after alarm or when everyone has exited or gone down. Placement, delays and fire settings are matched. Reception is a scenario assumption.';
+      + 'Both runs use ' + options.crowdMode + ' crowd movement and end at 120 s after alarm or when everyone has exited or gone down. Placement, delays and fire settings are matched. Reception is a scenario assumption.';
     selectComparisonView();
   }
 
@@ -439,17 +455,18 @@
     buildQueueMenu(state.sim);
     showLabel();
     updateComparison();
+    present(performance.now());
   }
 
   function updateComparison() {
     const { baseline, guided } = comparison;
-    const tickKey = baseline.tick + '/' + guided.tick + '/' + state.running;
+    const tickKey = baseline.substep + '/' + guided.substep + '/' + state.running;
     if (comparison.lastTickKey === tickKey) return;
     comparison.lastTickKey = tickKey;
     const measure = sim => {
       const s = sim.stats(), queues = sim.queueStats();
-      return [s.out + '/' + s.total, s.active, s.down,
-        sim.done && s.out === s.total ? (sim.lastOutTick * F.DT) + ' s' : sim.done ? 'Not reached' : 'Pending',
+      return [s.out + '/' + s.total, s.active + (s.injured || 0), s.down,
+        sim.done && s.out === s.total && !s.unplaced ? (sim.lastOutSeconds ?? sim.lastOutTick * F.DT).toFixed(1) + ' s' : s.unplaced ? 'Placement incomplete' : sim.done ? 'Not reached' : 'Pending',
         queues.reduce((sum, q) => sum + q.waitSeconds, 0).toFixed(1) + ' person-s',
         smokeValue(queues.reduce((sum, q) => sum + q.smokeSeconds, 0)) + ' smoke-s',
         sim.awarenessEvents.length, sim.exitUse[sim.awareness.familiar] || 0, sim.exitUse[sim.awareness.second] || 0];
@@ -463,7 +480,7 @@
       }));
     const complete = baseline.done && guided.done;
     $('awarenessStatus').textContent = (complete ? 'Complete' : state.running ? 'Running' : 'Paused') + ' · '
-      + Math.max(baseline.tick, guided.tick) * F.DT + ' s · '
+      + Math.max(baseline.seconds, guided.seconds).toFixed(1) + ' s · '
       + (guided.cueDelivered ? 'Announcement delivered to ' + guided.awarenessEvents.length + ' people.'
         : 'Announcement pending.');
     $('awarenessEvents').replaceChildren(...guided.awarenessEvents.map(e =>
@@ -504,7 +521,9 @@
       state.label = 'Manual: ' + ref.id + (ref.locked ? ' locked' : ' unlocked'); showLabel();
     } else if (placingFire && sim.ignite(c.x, c.y)) {
       snapshotAt = new Date(); placingFire = false; state.running = true;
+      state.last = performance.now();
       setStatus('Rehearsal running. Inspect an opening to see waiting time and smoke exposure.');
+      present(state.last);
     } else if (!placingFire) {
       const room = state.layout.rooms[sim.roomOf[c.i]];
       if (room) $('pa').textContent = room.name + ' · ' + room.people + ' people in the room model.';
@@ -514,7 +533,11 @@
   function updateWorkspace(sim, t) {
     const rehearsal = sim.alarmTick >= 0 || !!comparison;
     $('worldMode').textContent = rehearsal ? 'SIMULATION REPLAY' : state.frozen ? 'FROZEN VENUE' : 'VENUE VIEW';
-    $('sceneStatus').textContent = rehearsal ? 'Simulated event · ' + (sim.tick * F.DT).toFixed(1) + ' s' : state.seen.size ? 'Camera-informed venue' : 'Preset venue';
+    $('sceneStatus').textContent = rehearsal ? 'Simulated event · ' + sim.seconds.toFixed(1) + ' s' : state.seen.size ? 'Camera-informed venue' : 'Preset venue';
+    $('crowdModeLabel').textContent = sim.crowdMode === 'continuous' ? 'Continuous movement · modeled crowd density' : 'Tile movement · baseline crowd model';
+    $('mapLegend').title = sim.crowdMode === 'continuous'
+      ? 'Density colors: yellow ≥1.5, amber ≥2.5, coral ≥4 modeled people/m². Queues or body contact can also appear amber. Illustrative bands, not injury thresholds.'
+      : 'Tile baseline: neighborhood occupancy and blocked queues.';
     $('runLabel').textContent = placingFire ? 'Choose a floor location to start' : rehearsal ? comparison ? 'Matched exit-awareness replay' : state.running ? 'Evacuation in progress' : sim.done ? 'Scenario complete' : 'Simulation paused' : 'Explore the venue';
     $('snapshotLabel').textContent = rehearsal && snapshotAt ? 'Snapshot captured ' + snapshotAt.toLocaleTimeString() : 'Inspect an opening or simulate a fire';
     $('placeFire').textContent = placingFire ? 'Cancel placement' : 'Simulate fire';
@@ -524,7 +547,8 @@
     $('replay').disabled = !currentFire().length;
     $('speedLabel').textContent = (+$('speed').value * F.DT) + '×';
     $('population').textContent = sim.people.length + ' people';
-    $('placementNote').textContent = state.seen.size ? 'Camera counts · simulated placement' : 'Preset occupancy · simulated placement';
+    $('placementNote').textContent = (state.seen.size ? 'Camera counts · simulated placement' : 'Preset occupancy · simulated placement')
+      + (sim.unplaced ? ' · ' + sim.unplaced + ' of ' + sim.requestedPeople + ' requested people could not fit' : '');
     if (Math.floor(t / 1000) === lastUiSecond) return;
     lastUiSecond = Math.floor(t / 1000);
     const blocked = sim.openings.filter(o => o.kind === 'exit' && o.ref.locked).length;
@@ -535,26 +559,35 @@
       + (age === null ? 'Camera observations have yet to arrive.' : 'Latest camera frame ' + age + ' s ago.');
   }
 
-  function frame(t) {
-    const dt = Math.min(0.1, (t - state.last) / 1000), sim = state.sim;
-    state.last = t;
-    if (state.running && comparison) {
-      state.acc += dt * +$('speed').value;
-      for (let n = 0; state.acc >= 1 && n < 40; n++, state.acc--) {
-        comparison.baseline.step();
-        comparison.guided.step();
-      }
-      updateComparison();
-    } else if (state.running && !sim.done) {
-      state.acc += dt * +$('speed').value;
-      for (let n = 0; state.acc >= 1 && n < 40 && !sim.done; n++, state.acc--) sim.step();
-      if (sim.done) onDone();
-    }
-    if (queueTick !== sim.tick) updateQueues(sim);
-    view.draw(sim, t, { running: state.running, stepMs: 1000 / +$('speed').value, congestion: $('congestion').checked, cutaway: $('cutaway').checked, marks, tracked: trackedOpening, phones: [...live.values()].flatMap(o => (o.poses && o.poses.length ? o.poses : [o.pose])).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
+  // Also paint after controls change: background tabs may not receive an animation frame promptly.
+  function present(t) {
+    const sim = state.sim;
+    if (queueTick !== sim.substep) updateQueues(sim);
+    view.draw(sim, t, { running: state.running, alpha: Math.min(1, state.acc / F.CROWD_DT), stepMs: 1000 / +$('speed').value, congestion: $('congestion').checked, cutaway: $('cutaway').checked, marks, tracked: trackedOpening, phones: [...live.values()].flatMap(o => (o.poses && o.poses.length ? o.poses : [o.pose])).filter(Boolean) });
     const s = sim.stats();
-    STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
+    STATS.forEach(([k]) => { $('stat-' + k).textContent = k === 'seconds' ? sim.seconds.toFixed(1) : s[k]; });
     updateWorkspace(sim, t);
+  }
+
+  function frame(t) {
+    const dt = Math.max(0, (t - state.last) / 1000), sim = state.sim;
+    state.last = t;
+    if (state.running) {
+      state.acc += dt * +$('speed').value * F.DT;
+      const started = performance.now();
+      // Preserve unfinished time when expensive crowds need another frame: no skipped physics steps.
+      for (let n = 0; state.acc + 1e-9 >= F.CROWD_DT && n < 120; n++) {
+        if (comparison) {
+          comparison.baseline.advance(); comparison.guided.advance();
+        } else if (!sim.done) sim.advance();
+        state.acc = Math.max(0, state.acc - F.CROWD_DT);
+        if (comparison ? comparison.baseline.done && comparison.guided.done : sim.done) break;
+        if (performance.now() - started > 10) break;
+      }
+      if (comparison) updateComparison();
+      else if (sim.done) onDone();
+    }
+    present(t);
     requestAnimationFrame(frame);
   }
 
@@ -562,6 +595,15 @@
   const savedPlans = () => Object.fromEntries(Object.entries(LAYOUTS).filter(([k]) => k.startsWith(SAVED)));
   const storePlans = () => localStorage.setItem(PLANS_STORE, JSON.stringify(savedPlans()));
   const showDelete = () => { $('delPlan').hidden = !FEED.presenter || !$('preset').value.startsWith(SAVED); };
+  /* A large line over the map: what Gemini does with the floor plan now. bad = an error. ms = hide it after this long. */
+  let planStep = '', bannerTimer = 0;
+  function banner(text, bad, ms) {
+    const n = $('planBanner');
+    clearTimeout(bannerTimer);
+    n.textContent = text; n.hidden = false; n.classList.toggle('bad', !!bad);
+    if (ms) bannerTimer = setTimeout(() => { n.hidden = true; }, ms);
+  }
+
   /* The twin while Gemini still writes it: draw what is complete so far (2D or 3D, the view on screen). */
   function buildPreview(P) {
     if (!(P.width > 0 && P.height > 0) || !(P.rooms || []).length) return;
@@ -572,7 +614,8 @@
       const sim = new F.Sim(L, simOpts());
       state.sim = sim; state.running = false;
       view.fit(sim);
-      $('pa').textContent = ('Gemini builds the twin: ' + L.rooms.length + ' rooms, ' + L.doors.length + ' doors, ' + L.exits.length + ' exits…');
+      planStep = 'Gemini builds the twin: ' + L.rooms.length + ' rooms, ' + L.doors.length + ' doors, ' + L.exits.length + ' exits';
+      banner(planStep);
     } catch (e) { /* this piece cannot be drawn yet: wait for the next one */ }
   }
 
@@ -603,19 +646,34 @@
     on('placeFire', 'click', () => {
       if (!$('liveView').hidden) setView('3d');
       placingFire = !placingFire;
+      present(performance.now());
     });
     on('homeView', 'click', () => { view.home?.(state.sim); view.fit(state.sim); });
     window.addEventListener('twin:focus-opening', event => focusOpening(event.detail?.id));
     on('setup', 'click', () => $('setupDlg').showModal());
+    on('crowdMode', 'change', () => {
+      state.fix = null;
+      $('apply').disabled = true;
+      $('runs').replaceChildren(); $('fixes').replaceChildren();
+      reset();
+      setStatus('Crowd movement changed. Start a fresh rehearsal to compare this model.');
+    });
     on('freeze', 'click', () => setFrozen(!state.frozen));
     on('liveOnly', 'change', () => setLiveOnly($('liveOnly').checked));
     setInterval(dropStopped, 2000);
     on('pause', 'click', () => {
+      // Retain accrued substeps, but never include the time spent paused on resume.
+      state.last = performance.now();
       state.running = !state.running && (comparison
         ? !(comparison.baseline.done && comparison.guided.done)
         : state.sim.alarmTick >= 0 && !state.sim.done);
       if (comparison) updateComparison();
+      else if (!state.sim.done) setStatus(state.running
+        ? 'Rehearsal resumed. Inspect an opening to see waiting time and smoke exposure.'
+        : 'Rehearsal paused. Press Play to continue from this moment.');
+      present(state.last);
     });
+    on('speed', 'input', () => { $('speedLabel').textContent = (+$('speed').value * F.DT) + '×'; });
     on('compareAwareness', 'click', guarded('Comparison', startComparison));
     on('awarenessView', 'change', selectComparisonView);
     on('reset', 'click', () => reset());
@@ -637,15 +695,19 @@
       ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
     /* "+ Floor plan": a PDF or picture -> Gemini -> a new twin, kept in the list of layouts (this browser). */
     on('addPlan', 'click', () => {
-      if (!cfg().key) { log(KEY_MISSING + ' Open Setup first.'); $('setupDlg').showModal(); return; }
+      if (!cfg().key) { banner('Paste the Gemini API key in Settings first.', true, 8000); $('setupDlg').showModal(); return; }
       $('planFile').click();
     });
     on('planFile', 'change', guarded('Floor plan', async ev => {
       const files = [...ev.target.files]; ev.target.value = '';
       if (!files.length) return;
       const t0 = Date.now(), b = $('addPlan'), secs = () => Math.round((Date.now() - t0) / 1000);
-      const tick = setInterval(() => { b.textContent = PLAN_READING + ' ' + secs() + ' s'; }, 1000);
-      b.disabled = true; b.textContent = PLAN_READING;
+      let step = 'Gemini reads ' + files[0].name;   // buildPreview changes it to the count of rooms so far
+      const show = () => { b.textContent = PLAN_READING + ' ' + secs() + ' s'; banner((planStep || step) + ' · ' + secs() + ' s'); };
+      planStep = '';
+      const tick = setInterval(show, 1000);
+      b.disabled = true; show();
+      if ($('stage').dataset.view === 'live') setView('2d');   // the build is drawn on the map, not on the camera pictures
       log('Gemini reads ' + files[0].name + ' and builds the twin…');
       try {
         // The fast model, read while it writes: each finished room, door and exit goes on screen at once.
@@ -656,8 +718,14 @@
         $('preset').value = key;
         loadLayout(F.clone(LAYOUTS[key]));
         log('New twin from ' + files[0].name + ': ' + L.rooms.length + ' rooms, ' + L.exits.length + ' exits, in ' + secs() + ' s.');
-      } catch (e) { reset(); throw e; }   // back to the twin that was on screen
-      finally { clearInterval(tick); b.disabled = false; b.textContent = PLAN_ADD; showDelete(); }
+        clearInterval(tick);
+        banner('Twin built from ' + files[0].name + ' in ' + secs() + ' s: ' + L.rooms.length + ' rooms, ' + L.exits.length + ' exits', false, 5000);
+      } catch (e) {   // back to the twin that was on screen, and say why on the map (the log is in another tab)
+        clearInterval(tick); reset();
+        const said = /"message":\s*"([^"]+)"/.exec(e.message);   // Gemini's own words, without the JSON around them
+        banner('Floor plan failed: ' + (said ? said[1] : e.message).slice(0, 160), true, 12000);
+        throw e;
+      } finally { clearInterval(tick); b.disabled = false; b.textContent = PLAN_ADD; showDelete(); }
     }));
     on('delPlan', 'click', () => {
       const key = $('preset').value;
@@ -688,6 +756,7 @@
     $('key').value = sessionStorage.getItem(KEY_STORE) || '';
     on('key', 'input', keyChanged);
     keyChanged();
+    presetPicker = window.PresetPicker.create($('preset'));
     $('preset').value = 'malinGemini';
     setView('3d');
     setInterval(showLive, 1000);
@@ -696,7 +765,7 @@
     if (!(FEED.presenter && restoreInformed())) loadLayout(F.clone(LAYOUTS[$('preset').value]));
     showDelete();
     if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
-      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = $('freeze').hidden = $('addPlan').hidden = true;
+      $('pages').hidden = false; $('setup').hidden = $('presetPicker').hidden = $('freeze').hidden = $('addPlan').hidden = true;
       FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});
     }
     requestAnimationFrame(frame);
@@ -706,6 +775,7 @@
   window.FireApp = {
     layout: () => state.layout, fireRate: () => +$('rate').value, log,
     replay(s) {
+      $('crowdMode').value = s.crowdMode || 'continuous';
       reset(s.ignitions, s.events, { seed: s.seed, crowd: true });
       state.label = 'Advisor scenario ' + s.id; showLabel();
       log('Advisor scenario ' + s.id + ': ' + s.label + ' (seed ' + s.seed + ', crowd crush and falls on).');

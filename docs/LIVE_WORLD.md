@@ -20,7 +20,7 @@ from a snapshot of it.
 | **Exit / door state** | Perception + manual override | On change | Open, blocked (obstacle), closed or locked (manual) |
 | **Coverage** | Camera poses + view cones | When a camera moves | Which cells are observed now, and how long ago each unobserved cell was seen |
 
-The simulation sees one merged grid: static map + obstacles (not walkable) + exit state + people.
+The simulation sees one merged grid: static map + obstacles (not walkable) + exit state + people. The planned one-person-per-cell live-estimation representation below is separate from continuous simulation: scenario occupants have fractional positions and physical body collisions, so multiple simulated people can share a cell when they fit. Placement reports any occupants it cannot fit. This frontend change does not implement the planned stabilised live-world service.
 
 ## People: continuous and stabilised
 Each camera re-estimates every few seconds. The world doesn't copy each estimate. It **stabilises** them:

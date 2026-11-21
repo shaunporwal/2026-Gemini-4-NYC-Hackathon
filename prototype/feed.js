@@ -39,7 +39,7 @@
   }
 
   /* What the live view needs from the server: the newest frame of a room, and how phones join. */
-  const frameUrl = room => BASE + '/frame/' + encodeURIComponent(room) + '/latest.jpg?t=' + Date.now();
+  const frameUrl = (room, phone) => BASE + '/frame/' + encodeURIComponent(room) + '/latest.jpg?t=' + Date.now() + (phone ? '&phone=' + encodeURIComponent(phone) : '');
   const qrUrl = () => BASE + '/qr.svg?t=' + Date.now();
   const info = () => fetch(BASE + '/').then(r => r.json());
 
