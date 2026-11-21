@@ -5,6 +5,7 @@
   const $ = id => document.getElementById(id);
   const SEED = 7;
   const KEY_STORE = 'fireTwinGeminiKey';
+  const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
@@ -68,15 +69,18 @@
     FEED.configure(cfg().key, state.layout).catch(() => {});
   }
 
+  /* The table is always on screen: with no phone it says so; a phone that stopped sending shows as stopped. */
   function showLive() {
+    const now = Date.now() / 1000;
     const rows = [...live.values()].map(o => {
-      const tr = el('tr'), bad = o.events.length || (o.stream && o.stream.error);
-      const what = (o.stream && o.stream.error) || [o.density].concat(o.events).join(', ');
-      [o.cameraId, o.peopleCount, what].forEach((v, k) => tr.append(el('td', v, k === 2 && bad ? 'bad' : '')));
+      const tr = el('tr'), st = o.stream || {}, stopped = now - (st.lastFrame || 0) > LIVE_STALE_S;
+      const bad = !stopped && (o.events.length || st.error);
+      const what = stopped ? LIVE_STOPPED : st.error || [o.density].concat(o.events).join(', ');
+      [o.cameraId, o.peopleCount, what].forEach((v, k) => tr.append(el('td', v, k === 2 ? (bad ? 'bad' : stopped ? 'note' : '') : '')));
       return tr;
     });
+    if (!rows.length) { const td = el('td', LIVE_NONE, 'note'); td.colSpan = 3; const tr = el('tr'); tr.append(td); rows.push(tr); }
     $('live').replaceChildren(...rows);
-    $('liveTable').hidden = !rows.length;
   }
 
   /* One camera update. Before the fire: its head count goes into the twin. A camera that sees fire starts the fire. */
@@ -267,6 +271,7 @@
     on('key', 'input', keyChanged);
     keyChanged();
     setView('2d');
+    setInterval(showLive, 1000);
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);

@@ -73,6 +73,7 @@ th, td { text-align: left; padding: 4px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 500; }
 td:nth-child(n+2), th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 td.bad { color: var(--bad); font-weight: 700; }
+td.note:nth-child(3) { text-align: right; padding-left: 4px; }
 td.note { text-align: left; color: var(--muted); padding-left: var(--gutter); white-space: normal; }
 
 footer { grid-area: dock; display: grid; gap: var(--gap); }
