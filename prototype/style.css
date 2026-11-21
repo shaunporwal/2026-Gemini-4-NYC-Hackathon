@@ -67,6 +67,8 @@ header button { flex: none; }
 #stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 canvas[hidden], #liveView[hidden], .qr[hidden] { display: none; }
 canvas { cursor: crosshair; border-radius: 4px; }
+.tag[hidden] { display: none; }
+#hint3d { top: auto; right: auto; bottom: 0; left: 0; }
 .tag { position: absolute; top: 0; right: 0; padding: 2px 8px; border-radius: 4px; background-color: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: var(--fs-small); }
 
 /* Live view: phone cameras with the sim's smoke and fire over them, and how a phone joins. */

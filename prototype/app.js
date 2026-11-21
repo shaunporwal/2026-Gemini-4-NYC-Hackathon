@@ -231,6 +231,7 @@
     v.view = v.view || v.make.create($(v.canvas), $('stage'));
     view = v.view;
     document.querySelectorAll('#views button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
+    $('hint3d').hidden = mode !== '3d';
     if (state.sim) view.fit(state.sim);
   }
 

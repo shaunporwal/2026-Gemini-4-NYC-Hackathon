@@ -6,6 +6,7 @@
   const F = window.FireSim, T = window.THREE;
 
   const WALL_H = 2.2, FLOOR_T = 0.08, DRAG_PX = 5;
+  const KEY_PAN = 0.06;              // one key press moves the view this share of the camera's distance
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
     sky: 0x0e1116, floor: 0x3a4150, wall: 0xb8bcc6, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
@@ -34,6 +35,24 @@
     const camera = new T.PerspectiveCamera(50, 1, 0.1, 2000);
     const controls = new window.OrbitControls(camera, canvas);
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    /* Move across the map (pan): right-drag, Shift + drag, 2 fingers, or the arrow keys / W A S D.
+     * Panning slides along the floor, so from above it is plain left-right and up-down on the plan. */
+    controls.enablePan = true;
+    controls.screenSpacePanning = false;
+    const KEY_STEP = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] };
+    window.addEventListener('keydown', ev => {
+      const step = KEY_STEP[ev.code], at = ev.target;
+      if (!step || canvas.hidden || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (at && at.closest && at.closest('input, select, textarea, dialog, .strip')) return;   // typing, or stepping through saved frames
+      ev.preventDefault();
+      const ahead = new T.Vector3().subVectors(controls.target, camera.position).setY(0);
+      if (ahead.lengthSq() < 1e-6) ahead.set(0, 0, -1);             // looking straight down: "up" is north
+      ahead.normalize();
+      const right = new T.Vector3(-ahead.z, 0, ahead.x);
+      const move = right.multiplyScalar(step[0]).add(ahead.multiplyScalar(step[1]))
+        .multiplyScalar(camera.position.distanceTo(controls.target) * KEY_PAN);
+      camera.position.add(move); controls.target.add(move);
+    });
     const box = new T.BoxGeometry(1, 1, 1);
     const m4 = new T.Matrix4(), col = new T.Color();
     const raycaster = new T.Raycaster(), floorPlane = new T.Plane(new T.Vector3(0, 1, 0), 0);
