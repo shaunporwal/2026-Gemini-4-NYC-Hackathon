@@ -1,5 +1,5 @@
 /* All LLM work is here: prompts + the Gemini REST calls. No sim logic, no DOM.
- * The LLM reads (floor plan, photo or video -> layout), speaks (PA text) and proposes (fixes).
+ * The LLM reads (floor plan, photo or video -> layout), proposes (fixes).
  * It never decides: sim.js scores every proposal. */
 (function () {
   'use strict';
@@ -12,7 +12,7 @@
   const FAST = { thinking: 'low' }, DEEP = { deep: true };
 
   /* cfg = {key, model, deep}. Two Gemini 4 models, one job each:
-   *   cfg.model (Hydrogen) = fast work while people wait: room photos, PA text, fix proposals. Low thinking level.
+   *   cfg.model (Hydrogen) = fast work while people wait: room photos, fix proposals. Low thinking level.
    *   cfg.deep (Neon or Carbon) = slow reasoning, done before the demo: floor plan -> layout. Default thinking level.
    *   (Fix proposals ran on Neon first: no answer after 60 s. The sim scores every proposal, so a fast model is enough.)
    * parts = Gemini "parts" array. opts = {deep, thinking}. Returns the reply text. */
@@ -192,24 +192,6 @@
   /* Layout "notes" as shown to the user: what Gemini saw or heard. */
   const notesOf = layout => (Array.isArray(layout.notes) ? layout.notes : []).slice(0, NOTES_MAX).map(n => String(n).slice(0, NOTE_LEN));
 
-  /* status = Sim.status(). Used when there is no key, and as the facts for the LLM. */
-  function fallbackAnnouncement(st) {
-    const list = a => a.join(' and ');
-    return ['Attention.',
-      st.fireRooms.length ? 'Fire in ' + list(st.fireRooms.slice(0, 2)) + '.' : 'Fire alarm.',
-      st.blocked.length ? 'Do not use ' + list(st.blocked) + '.' : '',
-      st.open.length ? 'Leave now by ' + list(st.open) + '.' : 'No clear exit. Stay low and move away from smoke.'
-    ].filter(Boolean).join(' ');
-  }
-
-  async function announce(cfg, st) {
-    const text = await call(cfg, [{ text:
-      'You are the public-address voice of a building fire system. Write the next announcement for the occupants: ' +
-      'maximum 2 short sentences, calm, imperative, plain English. Use only these facts. Do not name an exit that is not in "open". ' +
-      'Reply with the announcement text only.\nFacts: ' + JSON.stringify(st) }], false, FAST);
-    return text.trim().slice(0, 300);
-  }
-
   /* ctx = {layout, ignitions, baseline}. Returns up to 3 actions for FireSim.applyAction, each with a reason. */
   async function proposeFixes(cfg, ctx) {
     const text = await call(cfg, [{ text:
@@ -226,5 +208,5 @@
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
   }
 
-  window.Gemini = { call, layoutFromMedia, observe, observeRoom, notesOf, announce, fallbackAnnouncement, proposeFixes };
+  window.Gemini = { call, layoutFromMedia, observe, observeRoom, notesOf, proposeFixes };
 })();
