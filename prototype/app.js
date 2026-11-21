@@ -197,8 +197,10 @@
     showLive();
     if (state.frozen) return;   // frozen: the feed still shows, the twin keeps its last capture
     const sim = state.sim, idle = sim.alarmTick < 0;
-    if (idle && o.stream && o.stream.ok && o.peopleCount !== room.people) {
+    const moved = o.pose && JSON.stringify(o.pose) !== JSON.stringify(room.view || null) && o.peopleCount > 0;
+    if (idle && o.stream && o.stream.ok && (o.peopleCount !== room.people || moved)) {
       room.people = o.peopleCount;
+      if (o.pose) room.view = { x: o.pose.x, y: o.pose.y, yaw: o.pose.yaw };   // the sim puts the counted people in this view
       $('json').value = JSON.stringify(state.layout);
       informed(room.name);
       reset();
