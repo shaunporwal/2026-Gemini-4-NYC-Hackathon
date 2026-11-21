@@ -107,13 +107,28 @@
     'Return only the JSON object. Example of the format (add "notes"; add colors and "objects" if you can see them):'
   ].join('\n');
 
-  const UPDATE_RULES = [
-    'The JSON below is the current layout of a venue in an evacuation simulator. The video is a walkthrough of the same venue.',
-    'Correct the layout from the video: add, move or remove exits and doors; set locked; set people for each room.',
-    'Do not change a room rectangle unless the video clearly contradicts it. Keep width and height.',
-    SCHEMA_RULES, VIDEO_RULES,
-    'Return only the full corrected JSON object, with "notes", colors and "objects". Current layout:'
+  const OBSERVE_RULES = [
+    'The photo or video shows one or more rooms of a venue. The JSON below is the layout of that venue in an evacuation simulator.',
+    'Grid: 1 cell = about 1 m. Origin top-left, x to the right, y down. Each room rectangle includes its walls (1 cell thick).',
+    'Find the room or rooms of the layout that the input shows. Use the room names, sizes, furniture, doors and signs.',
+    'Return only this JSON object:',
+    '{"rooms":[{"name":"<exact room name from the layout>","people":<count of the people you see in that room>,"color":"#rrggbb","why":"<short reason for the match>"}],',
+    ' "wallColor":"#rrggbb",',
+    ' "objects":[{"type":"table|desk|chair|sofa|counter|bar|stage|shelf|plant|screen","x":<int>,"y":<int>,"w":<int>,"h":<int>,"color":"#rrggbb"}],',
+    ' "openings":[{"id":"<id of a door or exit in the layout>","locked":true}],',
+    ' "notes":["..."]}',
+    'rooms.color = the floor color you see. wallColor = the wall color you see.',
+    'objects: the large furniture you see, in layout grid cells INSIDE a matched room and not on its wall cells. Keep the arrangement that you see. Maximum 40 items.',
+    'openings: only a door or exit of a matched room that is blocked or closed off in the input. If none, an empty list.',
+    'notes: maximum 6 short strings. Each note says one thing you saw or heard that matters in an evacuation (people, exit signs, blocked paths, furniture in the way) and where.',
+    'Layout:'
   ].join('\n');
+
+  /* The part of a layout that Gemini needs to place a photo: geometry and ids only. */
+  const geometryOf = L => ({ name: L.name, width: L.width, height: L.height,
+    rooms: L.rooms.map(r => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })),
+    doors: L.doors.map(d => ({ id: d.id, x: d.x, y: d.y })),
+    exits: L.exits.map(e => ({ id: e.id, name: e.name, x: e.x, y: e.y })) });
 
   async function layoutFrom(cfg, prompt, files, onStatus) {
     if (!cfg.key) throw new Error('no API key');
@@ -126,8 +141,9 @@
   /* files = floor plan and/or walkthrough video. Returns a new layout (+ notes). */
   const layoutFromMedia = (cfg, files, example, onStatus) => layoutFrom(cfg, NEW_RULES + '\n' + JSON.stringify(example), files, onStatus);
 
-  /* Returns `layout` corrected from a walkthrough video (+ notes). */
-  const updateFromVideo = (cfg, file, layout, onStatus) => layoutFrom(cfg, UPDATE_RULES + '\n' + JSON.stringify(layout), [file], onStatus);
+  /* files = photos or video of rooms of `layout`. Returns an observation for FireSim.applyObservation.
+   * The reply is a small patch, not a whole layout: that keeps the call fast. */
+  const observe = (cfg, files, layout, onStatus) => layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)), files, onStatus);
 
   /* Layout "notes" as shown to the user: what Gemini saw or heard. */
   const notesOf = layout => (Array.isArray(layout.notes) ? layout.notes : []).slice(0, NOTES_MAX).map(n => String(n).slice(0, NOTE_LEN));
@@ -166,5 +182,5 @@
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
   }
 
-  window.Gemini = { call, layoutFromMedia, updateFromVideo, notesOf, announce, fallbackAnnouncement, proposeFixes };
+  window.Gemini = { call, layoutFromMedia, observe, notesOf, announce, fallbackAnnouncement, proposeFixes };
 })();

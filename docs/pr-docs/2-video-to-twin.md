@@ -11,14 +11,14 @@ Show Gemini's multimodal input on stage: a phone walkthrough video of the venue 
 ## Scope
 
 In: `prototype/gemini.js`, `prototype/app.js`, `prototype/index.html`, `prototype/render3d.js`, `prototype/vendor/`, `prototype/layouts.js`, prototype docs, this doc. Also merges `main` (Jacob's `web/` map + voxel scene) into the branch.
-Out: changes to `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera feed.
+Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (only `applyObservation` is added there). Managed Agent sweep. Live camera feed.
 
 ## Design
 
 | Input (Setup dialog) | Gemini call | Result |
 |---|---|---|
 | Floor plan and/or video -> new twin | `layoutFromMedia` | A new layout. With both: geometry from the plan; exits, locked state, head counts from the video |
-| Walkthrough video -> update this twin | `updateFromVideo` | The current layout, corrected from the video. Room rectangles stay unless the video contradicts them |
+| Room photo or video -> update this twin | `observe` + `applyObservation` | Gemini finds which room of the current layout the input shows and returns a small patch: head count, floor and wall colors, furniture, blocked doors, notes. Code applies the patch; geometry does not change |
 
 - Video and files over 15 MB go through the Gemini Files API (resumable upload, poll until `ACTIVE`). Small images and PDFs stay inline.
 - Gemini returns `notes` (max 6): what it saw or heard, and where. The side panel shows them under "Gemini saw".
@@ -40,6 +40,8 @@ Out: changes to `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. L
 - [x] 3D voxel view of the live sim (fire, smoke, people, locked doors), orbit + zoom, click to ignite; 3D / 2D toggle
 - [x] Layout: optional `wallColor`, room `color`, `objects`; Gemini prompts ask for them
 - [ ] Test with a real key: does Gemini return colors and objects from a video, and do they look right in 3D
+- [x] Room photo -> update this twin (patch reply, not a whole layout). Real key, photo of a hackathon room: 42 s, matched "Central Lounge & Dedicated Desks", 13 people, 19 furniture items, 5 notes
+- [ ] Check that the matched room, the head count and the exit sign note are right (not checked against the building)
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
@@ -59,7 +61,8 @@ Out: changes to `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. L
 - Setup dialog is taller than a 390x664 phone screen now; it scrolls inside with no scroll bar.
 
 - Furniture is drawn only: the simulator ignores `objects`, so people walk through tables.
-- 3D colors and furniture were tested with hand-written values, not with a Gemini reply.
+- 3D colors and furniture from a real Gemini reply were tested with 1 photo only. `wallColor` from 1 room colors the walls of the whole building.
+- Photo update took 42 s with `gemini-4-hydrogen`: still slow for a live stage step.
 - 3D is not checked at phone size or against the UI rules audit.
 - `web/` and `prototype/` still use 2 map formats; no converter yet.
 

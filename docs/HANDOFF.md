@@ -48,7 +48,7 @@ Plain HTML + JS. No build, no packages, no tests (see `AGENTS.md`). Open `index.
 | `layouts.js` | Preset layouts, data only: `malin` (venue, default), `demo` (generic) |
 | `sim.js` | Layout schema + validation, fire, smoke, routing, people, scoring (`run`), layout actions (`applyAction`) |
 | `render.js` | Canvas view. Reads state only. |
-| `gemini.js` | Prompts + REST calls: `layoutFromMedia`, `updateFromVideo`, `announce`, `proposeFixes`, `fallbackAnnouncement` |
+| `gemini.js` | Prompts + REST calls: `layoutFromMedia`, `observe`, `announce`, `proposeFixes`, `fallbackAnnouncement` |
 | `app.js` | Wires DOM events to the modules |
 | `index.html`, `style.css` | Markup, look |
 

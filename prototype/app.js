@@ -196,16 +196,22 @@
     on('apply', 'click', applyFix);
     on('loadJson', 'click', guarded('Layout', () => loadLayout(JSON.parse($('json').value))));
     on('preset', 'change', () => loadLayout(F.clone(LAYOUTS[$('preset').value])));
+    /* job(files, status) -> {layout, note}. The status line shows each step and the time the call took. */
     const fromGemini = (what, job) => guarded(what, async ev => {
       const files = [...ev.target.files]; ev.target.value = '';
       if (!files.length) return;
       $('setupDlg').close();
-      const L = await job(files, msg => log('Gemini: ' + msg));
-      loadLayout(L);
-      log(what + ': layout loaded.');
+      const t0 = Date.now(), res = await job(files, msg => log('Gemini: ' + msg));
+      loadLayout(res.layout);
+      log(what + ': ' + res.note + ' (' + Math.round((Date.now() - t0) / 1000) + ' s)');
     });
-    on('media', 'change', fromGemini('New twin', (files, status) => G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status)));
-    on('walk', 'change', fromGemini('Video update', (files, status) => G.updateFromVideo(cfg(), files[0], state.layout, status)));
+    on('media', 'change', fromGemini('New twin', async (files, status) =>
+      ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
+    on('walk', 'change', fromGemini('Update', async (files, status) => {
+      const res = F.applyObservation(state.layout, await G.observe(cfg(), files, state.layout, status));
+      if (!res) throw new Error('Gemini did not match a room of this layout');
+      return { layout: res.layout, note: 'Gemini placed this in ' + res.rooms.join(' + ') + '.' };
+    }));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
     /* The key survives a reload of this tab (sessionStorage). It is never written to a file. */
