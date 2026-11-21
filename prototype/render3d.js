@@ -10,7 +10,7 @@
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
     sky: 0x1c2420, floor: 0xb5b5a1, wall: 0xe0decb, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
-    route: 0x529e9a, queued: 0xe99f60, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
+    route: 0x529e9a, queued: 0xe99f60, trapped: 0xff4fd8, down: 0x8a2626, fallen: 0xffb020, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
   };
   /* Furniture from layout.objects: [height in m, share of the cell that the voxel fills]. */
   const OBJECT = {
@@ -217,8 +217,8 @@
       let np = 0, nl = 0;
       sim.people.forEach((p, index) => {
         if (p.state === F.OUT) return;
-        const track = visual.tracks[index], isDown = p.state === F.DOWN;
-        const color = isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : shirts[index % shirts.length];
+        const track = visual.tracks[index], isDown = p.state === F.DOWN || p.state === F.INJURED;
+        const color = p.state === F.INJURED ? COLOR.fallen : isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : shirts[index % shirts.length];
         rotation.setFromAxisAngle(new T.Vector3(0, 1, 0), track.heading);
         rootMatrix.compose(position.set(track.x + 0.5, FLOOR_T, track.y + 0.5), rotation, scale.set(1, 1, 1));
         if (isDown) {

@@ -4,7 +4,8 @@
   const F = window.FireSim;
   const CELL = { [F.FLOOR]: '#171b22', [F.WALL]: '#465064', [F.LOCKED]: '#d0342c', [F.DOOR]: '#222a36', [F.EXIT]: '#2ecc71' };
   const OUTSIDE = '#1c2420', FURNITURE = '#7a5a3a';
-  const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626' };
+  const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626', fallen: '#ffb020' };
+  const HEAT = { lost: [255, 79, 79], falls: [255, 176, 32] };   // risk map: where people were lost, where they fell
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
   const MARK = { ms: 2500, px: 3, color: '#7cc4ff' };
@@ -98,6 +99,20 @@
       }
     }
 
+    /* Risk map (Advisor): heat = {lost, falls, runs} per cell, summed over many runs. Brighter = more often. */
+    function riskOverlay(sim, heat) {
+      for (const [key, rgb] of [['lost', HEAT.lost], ['falls', HEAT.falls]]) {
+        const h = heat[key]; let max = 0;
+        for (let i = 0; i < sim.N; i++) if (h[i] > max) max = h[i];
+        if (!max) continue;
+        for (let i = 0; i < sim.N; i++) {
+          if (!h[i]) continue;
+          ctx.fillStyle = 'rgba(' + rgb.join(',') + ',' + (0.35 + 0.65 * Math.sqrt(h[i] / max)).toFixed(2) + ')';
+          ctx.fillRect((i % sim.W) * cs, ((i / sim.W) | 0) * cs, cs, cs);
+        }
+      }
+    }
+
     function draw(sim, t, extra) {
       const marks = extra && extra.marks;
       const { W, N } = sim;
@@ -115,6 +130,7 @@
         }
       }
       shown = sim;
+      if (extra && extra.heat) riskOverlay(sim, extra.heat);
       const visual = crowd.update(sim, t, extra || {});
       if (extra?.congestion) {
         for (let i = 0; i < N; i++) {
@@ -138,12 +154,12 @@
         text(e.id, (cx + dx) * cs, (cy + dy) * cs, Math.max(EXIT_PX * dpr, cs), e.locked ? '#ff8a84' : '#7dffb0');
       }
       sim.people.forEach((p, index) => {
-        if (p.state === F.OUT) return;
-        const down = p.state === F.DOWN, track = visual.tracks[index];
+        if (p.state === F.OUT || (extra && extra.heat)) return;   // the risk map hides people
+        const down = p.state === F.DOWN || p.state === F.INJURED, track = visual.tracks[index];
         ctx.save();
         ctx.translate((track.x + 0.5) * cs, (track.y + 0.5) * cs);
         ctx.rotate(-track.heading);
-        ctx.fillStyle = down ? PERSON.down : p.queueOpening >= 0 ? '#e99f60' : sim.trapped(p) ? PERSON.trapped : '#77b5b0';
+        ctx.fillStyle = p.state === F.INJURED ? PERSON.fallen : down ? PERSON.down : p.queueOpening >= 0 ? '#e99f60' : sim.trapped(p) ? PERSON.trapped : '#77b5b0';
         ctx.beginPath(); ctx.ellipse(0, 0, cs * 0.32, cs * 0.23, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = p.knowsSecond ? '#c4a0ff' : '#f2c697';
         ctx.beginPath(); ctx.arc(0, cs * 0.09, cs * 0.17, 0, Math.PI * 2); ctx.fill();
