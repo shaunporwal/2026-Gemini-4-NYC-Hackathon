@@ -197,6 +197,16 @@ Grid objects (walls, exits, tables, chairs, people) have **no orientation field*
 If a case appears that can't be derived, the plan is a sparse optional list rather than per-cell data:
 `"overrides": [{ "x": 12, "y": 30, "facing": 90 }]`.
 
+## The map is the baseline of the live world
+The map JSON describes the **static** venue: walls, exits, doors, built-in furniture, camera poses. In the
+live evacuation twin (`docs/LIVE_WORLD.md`), cameras add **live layers** on top at run time: tracked people
+(the `P` characters are only a default population for demos and tests), **obstacles** Gemini detects, and
+the open / blocked / closed state of each opening. The map file itself isn't rewritten by perception.
+Simulations run on a **snapshot** that merges map + live layers.
+
+Note: the prototype (`prototype/`, the team demo) uses a different format (room rectangles). Which format
+becomes canonical for the live world is an open decision (`docs/ARCHITECTURE.md`, A).
+
 ## Changing the schema
 
 The schema is a team contract. When it changes, update this doc, `schemas/map.schema.json`,

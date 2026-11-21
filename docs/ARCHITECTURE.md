@@ -1,95 +1,77 @@
 # Architecture
 
-## Current Fire Twin runtime
+Concept: [VISION.md](VISION.md). This doc describes **what exists today** (checked against `main`,
+2026-11-21) and **the target architecture** for the live evacuation twin.
 
-The demo entry point is `prototype/index.html`. [Launch instructions](../README.md#open-the-current-fire-twin) select the Malin preset and 3D view.
-
-`layouts.js` supplies rectangle layouts. `app.js` owns UI state and steps `sim.js` every 0.5 simulated seconds. `render.js` and `render3d.js` read that same simulation. `gemini.js` handles media interpretation, PA text and proposed fixes.
-
-Matched awareness replay creates two simulations with identical layout, seed and ignitions. Separate seeded randomness governs cue reception. Routing fields are shared by knowledge group, with one field for the familiar exit and another for both selected exits. Each person uses the field matching their knowledge. Queue attribution follows that person's routing field. Both runs have a 120-second observation horizon.
-
-The TypeScript app currently uses `crowd/voxelSimulation.ts` to adapt this engine to grid maps. The modular systems and live-observation pipeline below describe the TypeScript integration design.
-
-
-## Big picture
+## Target
 
 ```
- Live camera feeds ──► server/ (Gemini, video+audio) ──WebSocket──► web/src/feed
-                                                                      │ Observation[]
- maps/*.json ──► map/loader ──► MapModel (static) ─────────┐          ▼
-                                                           ├──► SimState (per tick) ◄── user tap → ignite
-                                                           │     ├─ fire/   writes fire, smoke, heat layers
-                                                           │     ├─ crowd/  moves agents, reads hazards
-                                                           │     └─ stats/  evac / casualties / bottlenecks
-                                                           ▼
-                                                     render/ (three.js voxels) + ui/
+ phones / cameras ──► PERCEPTION (server/, Python)  ──Observations──►  LIVE WORLD (planned)
+   frames, pose         Gemini: people + obstacles                      stabilised people + obstacles
+                                                                         on one canonical grid
+                                                                           │            │ snapshot
+                                                                           ▼            ▼
+   ORGANIZER VIEW (browser) ◄──── world updates, highlights, alerts ──  SIM SERVICE + AGENT (planned, Node)
+   live map, camera panel,                                               engine: prototype/sim.js, headless
+   chat with the agent,          ◄──────── chat ─────────────────────►  Gemini tool loop: run_scenario,
+   scenario replay                                                       run_sweep, highlight, watch + alerts
 ```
 
-- **The simulation runs in the browser** (TypeScript) so it can tick at 60 fps and react
-  instantly to taps.
-- **The server is thin**: it owns the Gemini API key, watches the camera feeds, and pushes
-  `Observation` messages to the browser over WebSocket. It never runs the simulation.
-  Phones post frames and audio to it; the browser sends it camera poses when a camera is moved (`server/README.md`).
-- **All cross-module types are defined in [`CONTRACTS.md`](CONTRACTS.md)** and implemented in
-  `web/src/shared/types.ts`. That's the contract between teammates.
-
-## Modules (`web/src/`)
-
-| Folder | Responsibility | Reads | Writes |
+| Component | Job | Runs | Status |
 |---|---|---|---|
-| `shared/` | Types, constants, small pure helpers (index math, yaw→vector) | — | — |
-| `map/` | Load + validate map JSON → `MapModel`; object catalog; camera visible-cell computation; export edited map back to JSON | map JSON | `MapModel`, `CameraState.visibleCells` |
-| `render/` | three.js scene: voxel cells from the cell-type registry (InstancedMesh), people, fire/smoke overlays, agents, camera gizmos, raycast picking | `MapModel`, `SimState` | nothing in sim (emits UI events) |
-| `fire/` | Fire + smoke spread model (TBD by owner) | `MapModel`, layers | `fire`, `smoke`, `heat`, `fuel` layers |
-| `crowd/` | Agents, exit distance field, movement, casualties | `MapModel`, layers, observations | `agents` |
-| `feed/` | WebSocket client; turns `Observation`s into agent spawn/adjust requests | server | `observations` |
-| `stats/` | Evac/trapped/casualty counts, time-to-clear, bottleneck scoring, scenario compare | `SimState` | `StatsSnapshot` |
-| `ui/` | HUD, buttons (start/reset/compare), map picker | everything | user intents |
+| **Perception** | Camera frames → Observations: people (individual or crowd mode, with estimates), obstacles, exit state | `server/` Python FastAPI; owns the Gemini key | **Built** for people (room and grid modes, continuous counts). Obstacles: **planned** (prototype photo flow only). Crowd mode with estimates: **on Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub)** |
+| **Live world** | Merges Observations into one stable world: map + obstacles + exit state + people; produces snapshots | Planned: inside the server or the sim service (open) | **Planned** |
+| **Simulation engine** | Deterministic events on a world: fire + smoke today; crowd surge, blocked exits and danger zones planned | `prototype/sim.js` (plain JS; browser and Node) | **Built** for fire, smoke, routing, queues and locked exits |
+| **Sim service** | Runs scenarios and sweeps headless on snapshots, in parallel, in milliseconds | Planned: **Node**, next to the server | **Planned** (`sim.run()` already works headless in Node) |
+| **Agent** | Gemini tool-use loop: answers questions by running scenarios and sweeps, highlights results, background watch and alerts | Planned: in the Node sim service (key server-side) | **Planned** ([AGENT.md](AGENT.md)) |
+| **Organizer view** | Live map, camera panel, agent chat, highlights, alerts, scenario replay | Browser | Two frontends exist today (below). Chat, highlights and alerts: **planned** |
 
-**Rule:** a module only writes the state it owns (column "Writes"). Reading anything is fine.
+## What exists today
 
-## Static vs. dynamic state
+### Two frontends, two world formats
+| | `prototype/` (team demo, decision #28 on `main`) | `web/` (grid twin) |
+|---|---|---|
+| Tech | Plain JS, no build, opened from disk or a static server | Vite + TypeScript + three.js |
+| World format | **Room rectangles** (`rooms`, `doors`, `exits`, people per room; 1 m cells; ≤ 120×80) | **Grid v2** (one character per cell, 0.5 m default, any size; posed cameras) |
+| Simulation | `sim.js` | The same `sim.js`, adapted to the grid (`web/src/crowd/voxelSimulation.ts`) |
+| Views | 2D canvas + 3D voxel (`render3d.js`) | 3D voxel (`web/src/render/scene.ts`) |
+| Live cameras | Room mode: a head count per room, applied with `applyObservation`; Freeze; a "live only" switch (only people and furniture phones have seen); side-by-side camera-informed vs plan-only twin | Not on `main`. On Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub): per-cell people and estimates, "Build from cameras", camera panel |
+| Gemini in the browser | Yes (Setup key): floor plan → twin, room photo → update, PA text, Find fix | No (key only on the server) |
 
-- **`MapModel` (static, built once per map load):** `width`, `height`, `cellSize`,
-  `cells: Uint8Array` (CellType code), `walkable`, `opaque`, `baseFuel`, `zoneOf: Int16Array`
-  (cell → zone index or −1), `exitCells`, `people` (spawn points from `P`), `zones`, `cameras`.
-- **`SimState` (mutates every tick):** typed-array layers of length `width*height`
-  (`fire`, `smoke`, `heat`, `fuel`), `agents[]`, `time`, `observations`, `events`.
+### Perception server (`server/`, on `main`)
+- **Room mode (default)**: loads a prototype layout (`VENUE=malin`); each phone picks its room;
+  Observations carry `room`, `peopleCount` and exit ids. **Grid mode**: `MAP=` a v2 map; posed cameras;
+  `people` floor positions in cells.
+- Decisions API every frame (people present, count range, crowding, fire/smoke, exit blocked) +
+  Hydrogen re-counts in the background (~3 s, or when the count range changes); audio alarm detection.
+- Phones send where they stand and face; a debug view; WebSocket `/ws` and `GET /observations`.
+- On Jacob's `jacob/camera-feed` branch (not merged, not yet on GitHub) in addition: crowd mode (3×4 grid with hidden and beyond estimates → whole
+  agents on the map), single-shot snapshot (`PERCEPTION=snapshot`), `/rescan`, `/frame/{id}/latest.jpg`,
+  `Observation.gemini` (raw answer for the overlay), twin render and landmark calibration prototype.
 
-Typed arrays + flat index `i = y*width + x` everywhere: fast, trivially copyable for
-scenario comparison (`structuredClone`), and easy to upload to the GPU for overlays.
+## Data flow (target)
+1. A phone posts frames → perception → an **Observation** per camera (people with kind seen / hidden /
+   beyond, obstacles with cells + label + confidence, exit state, Gemini's raw answer, stream health).
+2. The **live world** stabilises Observations (persistence, matching, consistent-sighting rule for
+   obstacles; [LIVE_WORLD.md](LIVE_WORLD.md)) and pushes world updates to the organizer view.
+3. On a question or a background tick, the **agent** takes a **snapshot** and calls the sim service:
+   `run_scenario` / `run_sweep` ([SCENARIOS.md](SCENARIOS.md)). The results include casualties and replay ids.
+4. The agent answers in the chat, calls `highlight_on_map`, and raises alerts. The view can **replay** any
+   scenario from its snapshot.
 
-## Tick loop (planned `web/src/main.ts`)
+## Conventions (unchanged)
+- Grid: `x` = column, `y` = row, in cells; heights in metres; flat index `i = y * width + x`; yaw in compass
+  degrees (0 = north = −y). Details: [MAP_SCHEMA.md](MAP_SCHEMA.md).
+- Determinism: all randomness is seeded. Same snapshot + scenario + seed = same result.
+- One agent per cell; never fractional people. Estimated people stay labelled.
+- The Gemini key lives on the server. The prototype's browser key is an existing exception (see Open decisions).
 
-```
-each animation frame:
-  dt = fixed 1/20 s sim step (accumulate real time; run 0..N steps)
-  for step:
-    feed.step(map, state, dt)   // latest observations → agent adjustments (before fire starts)
-    fire.step(map, state, dt)   // spread fire/smoke/heat
-    crowd.step(map, state, dt)  // reroute + move agents, apply damage
-    stats.step(map, state, dt)
-  render.draw(state)         // interpolate, draw
-```
-
-Each system exports the same shape:
-
-```ts
-export interface SimSystem {
-  init(map: MapModel, state: SimState): void;
-  step(map: MapModel, state: SimState, dt: number): void;
-  reset?(map: MapModel, state: SimState): void;
-}
-```
-
-## Interaction
-- **Tap / click** on the 3D scene → `render/` raycasts to the floor plane → cell `(x, y)` →
-  emits `{ type: "ignite", x, y }` → `fire/` handles it.
-- **Camera gizmos:** drag to move, rotate handle (or `Q`/`E`) to change yaw → `map/`
-  recomputes `visibleCells` → render updates the cone.
-- **Scenario compare:** clone `SimState` + a modified `MapModel` (e.g. extra exit), run both
-  headless with the same seed, compare `StatsSnapshot`s.
-
-## Determinism
-All randomness goes through a seeded RNG passed in `SimState` (`state.rng()`), so scenario
-comparisons are apples-to-apples. Never call `Math.random()` inside a sim system.
+## Open decisions (for the team)
+| # | Question | Options |
+|---|---|---|
+| A | **Canonical world format** for the live world | Grid v2 (cell-level people, posed cameras, any size; needs the prototype UI ported or converted) · room rectangles (team demo today; only room-level counts, no positions) · grid as canonical with a rooms → grid converter |
+| B | **Organizer frontend** | Extend `prototype/` (team demo) · extend `web/` · merge into one |
+| C | **Where the live world lives** | Python server (next to perception) · Node sim service (next to the agent) |
+| D | **Agent model** | Hydrogen (fast) · Neon or Carbon (stronger planning and explanation) |
+| E | **Gemini calls from the browser** (prototype Setup key) | Keep for the prototype features · move all calls to the server |
+| F | **Decision numbering** | Jacob's branch numbered its decisions #28–31, which clash with `main`'s #28–32; renumber if that branch is merged (the concept decisions use C1–C9 to avoid this) |

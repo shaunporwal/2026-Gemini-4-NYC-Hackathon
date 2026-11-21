@@ -209,3 +209,61 @@ export interface StatsSnapshot {
 | `Observation` | feed / server |
 | `StatsSnapshot` | stats |
 | `SimSystem`, `SimEvent`, the rest of `SimState` | everyone (announce changes) |
+
+## PLANNED types: live world, scenarios, agent (not in `types.ts` yet)
+Design sketches for `docs/LIVE_WORLD.md`, `docs/SCENARIOS.md` and `docs/AGENT.md`. Not implemented. Shapes
+will be fixed when the open decisions in `docs/ARCHITECTURE.md` (A: world format, C: where the live world
+lives) are settled. Copy them into `types.ts` only when they're built.
+
+```ts
+type PersonKind = "seen" | "hidden" | "beyond";
+
+interface TrackedPerson { id: number; cell: number; kind: PersonKind; lastSeen: number; sourceCameraId: string }
+interface TrackedObstacle { id: number; cells: number[]; label: string; confidence: number; firstSeen: number; lastSeen: number }
+type OpeningState = "open" | "blocked" | "closed" | "locked";
+
+/** Frozen, self-contained copy of the live world; every simulation runs on one. */
+interface WorldSnapshot {
+  id: string;
+  takenAt: number;                    // ms epoch
+  mapName: string;
+  width: number; height: number; cellSize: number;
+  cells: Uint8Array;                  // CellType after obstacles are applied
+  walkable: Uint8Array;
+  openings: { cells: number[]; name?: string; state: OpeningState }[];
+  people: TrackedPerson[];            // whole agents, at most one per cell
+  obstacles: TrackedObstacle[];
+  coverage: Float32Array;             // seconds since each cell was last observed (Infinity = never)
+}
+
+type ScenarioType = "fire" | "blocked_exits" | "crowd_surge" | "danger_zone";
+interface Scenario {
+  type: ScenarioType;
+  where: number[];                    // start cell(s), or opening cells for blocked_exits
+  atSeconds?: number;                 // offset from the snapshot, default 0
+  params?: Record<string, number | string | boolean>; // per type: see SCENARIOS.md
+  seed: number;
+}
+
+interface SimResult {
+  scenario: Scenario;
+  snapshotId: string;
+  casualties: number;                 // the ranking metric
+  casualtiesEstimated: number;        // of which among hidden/beyond people
+  casualtyCells: number[];
+  noRoute: number;
+  evacuationSeconds: number | null;
+  worstOpenings: { cells: number[]; peakQueue: number; waitSeconds: number }[];
+  replayId: string;
+  engineMs: number;
+}
+
+interface SweepResult { snapshotId: string; runs: number; engineMs: number; ranked: SimResult[] }
+
+interface Alert {
+  id: string; at: number;
+  cause: string;                      // e.g. "Exit E2 blocked by a cart"
+  casualties: number; previous: number;
+  highlightCells: number[]; replayId?: string;
+}
+```
