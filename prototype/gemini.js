@@ -166,10 +166,21 @@
 
   /* The same, for a camera frame of a room that is KNOWN (the phone user picked it): Gemini does not
    * have to find the room, only to read it. The result always names that room. */
-  async function observeRoom(cfg, files, layout, roomName) {
+  /* poses[k] = where the phone stood and faced for files[k]: {x, y, yaw} (yaw: 0 = north = smaller y, 90 = east = larger x), or null. */
+  const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  function poseHint(poses) {
+    const known = (poses || []).map((p, k) => p && 'Picture ' + (k + 1) + ': the camera stood at cell (' + p.x + ', ' + p.y + ') and looked ' +
+      COMPASS[Math.round(p.yaw / 45) % 8] + ' (' + p.yaw + ' degrees).').filter(Boolean);
+    if (!known.length) return '';
+    return 'On this plan north = smaller y, east = larger x, south = larger y, west = smaller x. ' + known.join(' ') +
+      ' Use this to place things: the centre of a picture is in the look direction, things on the left of the picture are to the camera\'s left, ' +
+      'near things are close to the camera cell and far things are near the wall it looks at. ';
+  }
+
+  async function observeRoom(cfg, files, layout, roomName, poses) {
     const r = layout.rooms.find(x => x.name === roomName);
     const many = files.length > 1 ? 'The ' + files.length + ' pictures are frames of 1 video of the same room, taken a few seconds apart from different places. Use all of them: count each person and each piece of furniture once. ' : '';
-    const hint = many + 'The input shows the room "' + roomName + '": x ' + r.x + ', y ' + r.y + ', w ' + r.w + ', h ' + r.h +
+    const hint = many + poseHint(poses) + 'The input shows the room "' + roomName + '": x ' + r.x + ', y ' + r.y + ', w ' + r.w + ', h ' + r.h +
       '. Its floor cells are x ' + (r.x + 1) + '..' + (r.x + r.w - 2) + ', y ' + (r.y + 1) + '..' + (r.y + r.h - 2) +
       '. Do not choose another room. Put every object on those floor cells, spread over the room as you see them.';
     const obs = await layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)) + '\n' + hint, await Promise.all(files.map(shrink)), () => {}, FAST);

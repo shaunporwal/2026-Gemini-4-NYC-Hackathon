@@ -10,7 +10,7 @@
     color-scheme: dark;
     --bg: #0c0f14; --panel: #11151c; --control: #1b212c; --line: #323b4a; --text: #e6e9ee; --muted: #9aa4b2;
     --accent: #2b6cb0; --focus: #7cc4ff; --ok: #4ade80; --bad: #ff6b61; --video: #000; --scrim: rgba(0, 0, 0, .62);
-    --gutter: 12px; --gap: 8px; --tap: 48px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
+    --gutter: 12px; --gap: 8px; --tap: 48px; --mini-h: 132px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100dvh; margin: 0; overflow: hidden; }
@@ -52,6 +52,17 @@
   #plan text { fill: var(--text); font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
   #plan text.name { fill: var(--muted); font-weight: 500; }
   #legend { color: var(--muted); font-size: var(--fs-small); }
+
+  /* Where the phone stands and faces: a small map of the room. Tap = your place. Drag = where you face. */
+  #spot { flex: none; display: flex; align-items: center; gap: var(--gutter); }
+  /* Sized to the room's own shape (set in drawMini), as large as the row allows: a finger must hit a spot in it. */
+  #mini { flex: none; height: var(--mini-h); max-width: 55%; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--panel); touch-action: none; }
+  #mini rect { fill: var(--control); stroke: var(--line); stroke-width: 0.25; }
+  #mini rect.here { fill: var(--panel); stroke: var(--focus); stroke-width: 0.35; }
+  #mini .me { fill: var(--accent); }
+  #mini .cone { fill: var(--accent); opacity: .45; }
+  #spotText { margin: 0; color: var(--muted); font-size: var(--fs-small); }
+  #spotText b { color: var(--text); }
 
   /* Step 2: the camera. */
   #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
@@ -102,6 +113,10 @@
 </section>
 
 <section id="cam" hidden>
+  <div id="spot">
+    <svg id="mini" role="img" aria-label="Map of your room"></svg>
+    <p id="spotText"></p>
+  </div>
   <div id="view">
     <video id="v" autoplay playsinline muted></video>
     <img id="poster" alt="Last frame sent" hidden>
@@ -135,6 +150,9 @@ const TEXT = {
   blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
   sent: 'Photo sent. Gemini is reading it…', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…',
   lost: 'This room is not on the twin now. Tap the room name and pick again.',
+  spotAsk: 'Tap where you stand in the room. Then drag toward where the camera faces.',
+  spotFace: 'Now drag from your dot toward where the camera faces.',
+  spotSet: 'Gemini uses your place and facing to put the furniture in the right spot. Tap or drag to change.',
   slow: 'No answer yet. Look at the big screen.', listening: 'listening…', noMic: 'mic off', onTwin: ' The twin now shows this.'
 };
 let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
@@ -155,6 +173,7 @@ function enter(room, startNow) {
   $('where').textContent = 'Your room (tap to change):';
   $('change').textContent = room;
   show($('pick'), false); show($('cam'), true); show($('change'), true);
+  drawMini(room);
   show($('poster'), false);
   $('b').textContent = TEXT.start;
   note(TEXT.idle);
@@ -173,7 +192,7 @@ function leave() {
 /* Room picker: the floor plan and the list show the same rooms. A tap on one selects it in both;
  * the button below then starts the camera for that room. */
 const RESULT_MS = 1500, RESULT_TRIES = 16;
-const ROOM_STORE = 'fireTwinRoom';
+const ROOM_STORE = 'fireTwinRoom', POSE_STORE = 'fireTwinPose:';
 const LEVEL_GAIN = 600;   // microphone level (0..1 RMS) -> percent of the meter
 const SOUND = { none: 'no alarm', alarm: 'ALARM', screaming: 'SCREAMING' };   // what Gemini heard in the last 2 s
 const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
@@ -213,6 +232,56 @@ function drawPlan(plan) {
   show(svg, true); show($('legend'), true);
 }
 
+/* ---- Where the phone stands and faces, on a small map of its room. Sent with every frame.
+ * x, y = layout cells. yaw = degrees on the plan: 0 = up (north), 90 = right (east). */
+let planData = null, pose = null;
+const MINI = { pad: 2, me: 0.9, cone: 4.5, spread: 28, dragMin: 0.8 };
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+
+function drawMini(room) {
+  const svg = $('mini'), r = planData && planData.rooms.find(x => x.name === room);
+  show($('spot'), !!r);
+  if (!r) return;
+  try { pose = JSON.parse(localStorage.getItem(POSE_STORE + room) || 'null'); } catch (e) { pose = null; }
+  if (pose && !(pose.x >= r.x && pose.x <= r.x + r.w && pose.y >= r.y && pose.y <= r.y + r.h)) pose = null;
+  svg.setAttribute('viewBox', [r.x - MINI.pad, r.y - MINI.pad, r.w + 2 * MINI.pad, r.h + 2 * MINI.pad].join(' '));
+  svg.style.aspectRatio = (r.w + 2 * MINI.pad) + ' / ' + (r.h + 2 * MINI.pad);
+  const node = (tag, attrs) => { const n = document.createElementNS(SVG, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+  svg.replaceChildren(...planData.rooms.map(o => node('rect', { x: o.x + 0.5, y: o.y + 0.5, width: o.w - 1, height: o.h - 1, rx: 0.5, class: o.name === room ? 'here' : '' })),
+    node('path', { class: 'cone', id: 'cone' }), node('circle', { class: 'me', id: 'me', r: MINI.me }));
+  const at = ev => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  let from = null;
+  svg.onpointerdown = ev => {
+    const p = at(ev);
+    from = { x: clamp(p.x, r.x + 1, r.x + r.w - 1), y: clamp(p.y, r.y + 1, r.y + r.h - 1) };
+    // A tap near your dot keeps your place (you are starting a drag to set the facing). A tap elsewhere moves you.
+    if (pose && Math.hypot(from.x - pose.x, from.y - pose.y) < MINI.me * 2.5) from = { x: pose.x, y: pose.y };
+    pose = { x: from.x, y: from.y, yaw: pose ? pose.yaw : null };
+    svg.setPointerCapture(ev.pointerId); showPose(room);
+  };
+  svg.onpointermove = ev => {
+    if (!from) return;
+    const p = at(ev), dx = p.x - from.x, dy = p.y - from.y;
+    if (Math.hypot(dx, dy) < MINI.dragMin) return;
+    pose.yaw = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+    showPose(room);
+  };
+  svg.onpointerup = svg.onpointercancel = () => { from = null; localStorage.setItem(POSE_STORE + room, JSON.stringify(pose)); };
+  showPose(room);
+}
+
+function showPose(room) {
+  const me = $('me'), cone = $('cone'), text = $('spotText');
+  show(me, !!pose); show(cone, !!(pose && pose.yaw != null));
+  if (!pose) { text.textContent = TEXT.spotAsk; return; }
+  me.setAttribute('cx', pose.x); me.setAttribute('cy', pose.y);
+  if (pose.yaw == null) { text.textContent = TEXT.spotFace; return; }
+  const ray = deg => { const a = deg * Math.PI / 180; return (pose.x + Math.sin(a) * MINI.cone) + ' ' + (pose.y - Math.cos(a) * MINI.cone); };
+  cone.setAttribute('d', 'M' + pose.x + ' ' + pose.y + ' L' + ray(pose.yaw - MINI.spread) + ' L' + ray(pose.yaw + MINI.spread) + ' Z');
+  text.replaceChildren(Object.assign(document.createElement('b'), { textContent: 'Facing ' + COMPASS[Math.round(pose.yaw / 45) % 8] + '. ' }), TEXT.spotSet);
+}
+
 fetch('/').then(r => r.json()).then(j => {
   const names = j.rooms.length ? j.rooms : Object.keys(j.cameras);   // rooms of the twin, else cameras of the map
   names.forEach((name, k) => {
@@ -223,7 +292,7 @@ fetch('/').then(r => r.json()).then(j => {
     $('rooms').append(b);
     picked.marks.set(name, [b]);
   });
-  if (j.plan && j.plan.rooms && j.plan.rooms.length) drawPlan(j.plan);
+  if (j.plan && j.plan.rooms && j.plan.rooms.length) { planData = j.plan; drawPlan(j.plan); if (cam) drawMini(cam); }
   const back = localStorage.getItem(ROOM_STORE);   // the room chosen before a visit to the Twin page
   if (!cam && back && names.includes(back)) enter(back, false);
 });
@@ -330,7 +399,8 @@ function report(j, ms) {
 }
 
 async function postFrame(room, blob) {
-  const r = await fetch('/frame/' + encodeURIComponent(room), { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
+  const p = pose && pose.yaw != null ? '?x=' + pose.x.toFixed(1) + '&y=' + pose.y.toFixed(1) + '&yaw=' + Math.round(pose.yaw) : '';
+  const r = await fetch('/frame/' + encodeURIComponent(room) + p, { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
   return r.json();
 }
 

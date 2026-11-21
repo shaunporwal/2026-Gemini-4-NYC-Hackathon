@@ -37,7 +37,7 @@
     root.append(grid, el('div', 'none', TEXT.none), saved, join);
     const tiles = new Map();    // room name -> {fig, img, haze, glow, cap, shown}
     const pinned = new Map();   // room name -> {url, t}: a saved frame shown in place of the live one
-    let savedOf = {};           // room name -> addresses of its saved frames, newest first
+    let savedOf = {};           // room name -> its saved frames, newest first: {url, pose}
     let lastFrames = 0, lastInfo = -INFO_MS, link = null, stripKey = '', chosen = null;   // chosen = address of the saved frame on show
 
     function tile(room) {
@@ -48,8 +48,10 @@
       /* Put this room's saved frames (the one on show first, then the newest) into the simulation. */
       act.onclick = ev => {
         ev.stopPropagation();
-        const pin = pinned.get(room), others = (savedOf[room] || []).filter(u => !pin || u !== pin.url);
-        src.rebuild(room, (pin ? [pin.url] : []).concat(others).slice(0, REBUILD_FRAMES));
+        const all = savedOf[room] || [], pin = pinned.get(room);
+        const first = pin ? all.filter(f => f.url === pin.url) : [], rest = all.filter(f => !pin || f.url !== pin.url);
+        const use = first.concat(rest).slice(0, REBUILD_FRAMES);
+        src.rebuild(room, use.map(f => f.url), use.map(f => f.pose));
       };
       fig.append(img, haze, glow, cap, act);
       fig.onclick = () => { if (pinned.delete(room)) { tiles.get(room).shown = null; chosen = null; mark(); } };
@@ -85,10 +87,10 @@
     /* The strip of saved frames, newest first, across all rooms. */
     function showSaved(c) {
       const all = [];
-      for (const room in c.rooms) for (const f of c.rooms[room]) all.push({ room, file: f.file, t: f.t });
+      for (const room in c.rooms) for (const f of c.rooms[room]) all.push({ room, file: f.file, t: f.t, pose: f.pose });
       all.sort((a, b) => b.t - a.t);
       savedOf = {};
-      for (const f of all) (savedOf[f.room] = savedOf[f.room] || []).push(src.captureUrl(f.room, f.file));
+      for (const f of all) (savedOf[f.room] = savedOf[f.room] || []).push({ url: src.captureUrl(f.room, f.file), pose: f.pose || null });
       const list = all.slice(0, MAX_SAVED), key = list.map(f => f.room + f.file).join();
       saved.hidden = !list.length;
       if (key === stripKey) return;

@@ -25,7 +25,7 @@
     'live': { canvas: 'liveView', make: { create: (node, wrap) => window.FireRenderLive.create(node, wrap,
       { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info,
         captures: FEED.captures, captureUrl: FEED.captureUrl,
-        rebuild: (room, urls) => rebuildRoom(room, urls), busy: () => detail.busy.size > 0 }) } }
+        rebuild: (room, urls, poses) => rebuildRoom(room, urls, poses), busy: () => detail.busy.size > 0 }) } }
   };
   let view = null;
   let comparison = null;
@@ -154,7 +154,7 @@
    * Rooms are read side by side (1 for each phone), never the same room twice at once. */
   const detail = { busy: new Set(), at: new Map() };
   /* urls = saved frames a person chose (the frames of a video). Without urls: the newest live frame, on a timer. */
-  async function rebuildRoom(roomName, urls) {
+  async function rebuildRoom(roomName, urls, poses) {
     const asked = !!urls, no = why => { if (asked) log('Rebuild ' + roomName + ': ' + why); };
     if (!state.layout.rooms.some(r => r.name === roomName)) return no('this room is not in the layout on screen.');
     if (!FEED.presenter || !cfg().key) return no('Gemini reads frames on the presenter\'s laptop only.');
@@ -164,10 +164,13 @@
     if (!asked && performance.now() - (detail.at.get(roomName) || -Infinity) < DETAIL_S * 1000) return;
     detail.busy.add(roomName); detail.at.set(roomName, performance.now());
     try {
-      urls = urls || [FEED.frameUrl(roomName)];
+      if (!urls) { urls = [FEED.frameUrl(roomName)]; poses = [(live.get(roomName) || {}).pose || null]; }
       if (asked) log('Gemini: reading ' + urls.length + ' frame' + (urls.length > 1 ? 's' : '') + ' of ' + roomName + '…');
       const files = await Promise.all(urls.map(async (u, k) => new File([await (await fetch(u)).blob()], roomName + '-' + k + '.jpg', { type: 'image/jpeg' })));
-      const obs = await G.observeRoom(cfg(), files, state.layout, roomName);
+      const obs = await G.observeRoom(cfg(), files, state.layout, roomName, poses);
+      // A dark or blocked frame reads as an empty room. On the timer, such a frame must not wipe a room that has furniture.
+      const had = (state.layout.objects || []).some(o => { const r = state.layout.rooms.find(x => x.name === roomName); return o.x >= r.x && o.x < r.x + r.w && o.y >= r.y && o.y < r.y + r.h; });
+      if (!asked && had && !(Array.isArray(obs.objects) && obs.objects.length)) return log('Gemini saw no furniture in the last frame of ' + roomName + '. Kept the earlier capture.');
       const res = F.applyObservation(state.layout, obs);
       if (!res || state.sim.alarmTick >= 0 || (!asked && state.frozen)) return;   // a fire started, or the twin was frozen, while Gemini was reading: keep the layout
       const live1 = live.get(roomName), room = res.layout.rooms.find(r => r.name === roomName);
@@ -481,7 +484,7 @@
       if (sim.done) onDone();
     }
     if (queueTick !== sim.tick) updateQueues(sim);
-    view.draw(sim, t, { marks, tracked: trackedOpening });   // marks: rooms a phone just reported. tracked: the doorway on watch.
+    view.draw(sim, t, { marks, tracked: trackedOpening, phones: [...live.values()].map(o => o.pose).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
     requestAnimationFrame(frame);

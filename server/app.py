@@ -17,6 +17,7 @@ Env flags:
 import asyncio
 import csv
 import json
+import math
 import os
 import re
 import time
@@ -108,6 +109,7 @@ def observation(cam_id: str) -> dict:
         evs.append(c["audio"])
     o = {
         "cameraId": cam_id,
+        "pose": c.get("pose"),
         "timestamp": int((c["stream"]["lastFrame"] or time.time()) * 1000),
         "peopleCount": c["count"],
         "density": P.DENSITY[max(0, min(4, round(c["crowding"])))],
@@ -143,11 +145,25 @@ def log_metrics(row: dict):
         w.writerow(row)
 
 
+def read_pose(q) -> dict | None:
+    """Where the phone stands and looks, from the frame's query string: x, y in layout cells; yaw in degrees,
+    0 = north on the plan (smaller y), 90 = east (larger x). None if the phone did not say."""
+    try:
+        x, y, yaw = float(q["x"]), float(q["y"]), float(q["yaw"])
+    except (KeyError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (x, y, yaw)):
+        return None
+    return {"x": round(x, 1), "y": round(y, 1), "yaw": round(yaw % 360)}
+
+
 def save_eval_frame(cam_id, ts, jpeg, c):
     d = EVAL_DIR / cam_id
     d.mkdir(parents=True, exist_ok=True)
     name = f"{int(ts * 1000)}.jpg"
     (d / name).write_bytes(jpeg)
+    if c.get("pose"):
+        (d / f"{int(ts * 1000)}.pose.json").write_text(json.dumps(c["pose"]))
     pred = EVAL_DIR / "predictions.csv"
     new = not pred.exists()
     with pred.open("a", newline="") as f:
@@ -255,6 +271,7 @@ async def post_frame(cam_id: str, request: Request):
     now = time.time()
     latest_frame[cam_id] = (jpeg, now)
     c = cams[cam_id]
+    c["pose"] = read_pose(request.query_params)
     c["stream"]["lastFrame"] = now
     c["stream"]["frames"] += 1
     events[cam_id].set()
@@ -328,6 +345,13 @@ async def latest_jpeg(cam_id: str):
 
 
 CAPTURE_FILE = re.compile(r"^\d+\.jpg$")
+
+
+def saved_pose(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
 CAPTURES_PER_ROOM = 12
 
 
@@ -339,7 +363,7 @@ async def list_captures():
         for d in sorted(p for p in EVAL_DIR.iterdir() if p.is_dir()):
             files = sorted((f.name for f in d.iterdir() if CAPTURE_FILE.match(f.name)), reverse=True)[:CAPTURES_PER_ROOM]
             if files:
-                out[d.name] = [{"file": f, "t": int(f[:-4])} for f in files]
+                out[d.name] = [{"file": f, "t": int(f[:-4]), "pose": saved_pose(d / (f[:-4] + ".pose.json"))} for f in files]
     return {"saving": SAVE_FRAMES, "rooms": out}
 
 

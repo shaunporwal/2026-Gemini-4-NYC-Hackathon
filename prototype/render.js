@@ -8,6 +8,7 @@
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
   const MARK = { ms: 2500, px: 3, color: '#7cc4ff' };
+  const PHONE = { reach: 5, spread: 0.5, dot: '#ffffff', cone: 'rgba(124,196,255,.3)' };   // reach in cells, spread in radians each side
 
   /* Words of a room name that fit a box: full name on 1 or 2 lines, else its short form.
    * Short form = the text in brackets ("Bricken Office (10)" -> "10"), else the first word. */
@@ -85,6 +86,17 @@
       }
     }
 
+    /* Where each phone stands and looks (from the phone's own room map): a dot and its field of view. */
+    function phones(list) {
+      for (const p of list || []) {
+        const a = p.yaw * Math.PI / 180, ray = d => [(p.x + Math.sin(a + d) * PHONE.reach) * cs, (p.y - Math.cos(a + d) * PHONE.reach) * cs];
+        ctx.fillStyle = PHONE.cone;
+        ctx.beginPath(); ctx.moveTo(p.x * cs, p.y * cs); ctx.lineTo(...ray(-PHONE.spread)); ctx.lineTo(...ray(PHONE.spread)); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = PHONE.dot;
+        ctx.beginPath(); ctx.arc(p.x * cs, p.y * cs, cs * 0.6, 0, 6.283); ctx.fill();
+      }
+    }
+
     function draw(sim, t, extra) {
       const marks = extra && extra.marks;
       const { W, N } = sim;
@@ -117,6 +129,7 @@
         ctx.arc((p.i % W + 0.5) * cs, (((p.i / W) | 0) + 0.5) * cs, cs * (down ? 0.28 : 0.38), 0, 6.283);
         ctx.fill();
       }
+      phones(extra && extra.phones);
       flash(sim, t, marks);
       roomLabels(sim);
     }

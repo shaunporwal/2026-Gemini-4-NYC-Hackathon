@@ -58,3 +58,16 @@ Change after the failure: fix proposals moved from Neon to Hydrogen, and Find fi
 ## Head counts from the fast model (server log, real phone frames)
 
 West Booth Lounge, frames within a few minutes: 2, 3, 6, 7, 8, 12, 13. Ground truth not recorded. The count depends on where the phone points; a single frame is not a room count.
+
+## Phone position and facing (2026-11-21, about 14:50)
+
+The phone page now sends where the phone stands and which way it faces (the user taps and drags on a small room map). Gemini gets that with the frame.
+
+| Test | Result |
+|---|---|
+| Real frame of West Booth Lounge, pose = south end of the room (20.5, 15.5), facing north | 12 people, 10 furniture items, all placed north of the camera (y 7 to 14) along the room: tables in the centre, shelves and chairs beside them |
+| Black frame (phone pointed at the floor or covered) | Gemini: "Image is completely black". It read an empty room and WIPED the room's furniture and people |
+
+Change after the failure: on the timer, a frame with no furniture no longer replaces a room that has furniture ("Kept the earlier capture"). The head count from a black frame (0) still goes through: not fixed.
+
+Not measured: whether the pose makes the placement more correct. No ground truth for furniture positions.
