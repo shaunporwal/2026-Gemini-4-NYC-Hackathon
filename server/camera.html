@@ -69,6 +69,9 @@
   #facts div { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   #facts b { font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
   #facts span { color: var(--muted); font-size: var(--fs-small); }
+  /* Microphone level: moves when the phone hears anything, so you can see the microphone works. */
+  #meter { display: inline-block; width: 28px; height: 8px; border-radius: 4px; background-color: var(--control); overflow: hidden; align-self: center; }
+  #level { display: block; width: 0; height: 100%; background-color: var(--ok); }
   #status { min-height: 20px; color: var(--muted); font-size: var(--fs-small); text-align: center; }
   .ok { color: var(--ok); } .bad { color: var(--bad); }
   .row { display: flex; gap: var(--gap); }
@@ -107,7 +110,7 @@
   <div id="facts">
     <div><span>People</span><b id="fPeople">–</b></div>
     <div><span>Fire</span><b id="fHazard">–</b></div>
-    <div><span>Sound</span><b id="fSound">–</b></div>
+    <div><span>Sound</span><i id="meter" title="Microphone level"><i id="level"></i></i><b id="fSound">–</b></div>
   </div>
   <div id="status"></div>
   <label class="switch"><span>Send microphone sound</span><input type="checkbox" id="mic" checked></label>
@@ -132,7 +135,7 @@ const TEXT = {
   blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
   sent: 'Photo sent. Gemini is reading it…', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…',
   lost: 'This room is not on the twin now. Tap the room name and pick again.',
-  slow: 'No answer yet. Look at the big screen.', listening: 'listening', noMic: 'off', onTwin: ' The twin now shows this.'
+  slow: 'No answer yet. Look at the big screen.', listening: 'listening…', noMic: 'mic off', onTwin: ' The twin now shows this.'
 };
 let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
 /* Session number. Each start and each stop makes a new session. A permission answer, a frame or a sound
@@ -171,6 +174,8 @@ function leave() {
  * the button below then starts the camera for that room. */
 const RESULT_MS = 1500, RESULT_TRIES = 16;
 const ROOM_STORE = 'fireTwinRoom';
+const LEVEL_GAIN = 600;   // microphone level (0..1 RMS) -> percent of the meter
+const SOUND = { none: 'no alarm', alarm: 'ALARM', screaming: 'SCREAMING' };   // what Gemini heard in the last 2 s
 const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
 const picked = { name: null, marks: new Map() };   // room name -> [list row, plan rect]
 
@@ -264,6 +269,7 @@ function stop() {
   session++;
   const wasRunning = running;
   running = false; stopAudio();
+  $('level').style.width = '0';
   if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
   if (!wasRunning) return;
   // After a recording: keep the last frame on screen and say what was sent and what to do next.
@@ -285,6 +291,8 @@ function startAudio(ac, stream, my, room) {
   proc.onaudioprocess = e => {
     const d = e.inputBuffer.getChannelData(0);
     buf.push(new Float32Array(d)); n += d.length;
+    let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+    $('level').style.width = Math.min(100, Math.round(Math.sqrt(sum / d.length) * LEVEL_GAIN)) + '%';
     if (n >= ac.sampleRate * clipS) { if (my === session) sendClip(buf, n, ac.sampleRate, room); buf = []; n = 0; }
   };
   src.connect(proc); proc.connect(ac.destination);
@@ -309,7 +317,7 @@ function sendClip(chunks, n, rate, room) {
     wav.setInt16(44 + i * 2, x * 0x7fff, true);
   }
   fetch('/audio/' + encodeURIComponent(room), { method: 'POST', body: wav.buffer, headers: { 'Content-Type': 'audio/wav' } })
-    .then(r => r.json()).then(j => { $('fSound').textContent = j.error ? 'error' : j.event; })
+    .then(r => r.json()).then(j => { $('fSound').textContent = j.error ? 'error' : SOUND[j.event] || j.event; })
     .catch(() => { $('fSound').textContent = 'failed'; });
 }
 

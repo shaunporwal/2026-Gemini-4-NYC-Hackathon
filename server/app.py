@@ -240,6 +240,14 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def never_cache(request: Request, call_next):
+    """Pages change during the day: a phone must not keep an old copy of the camera page or the twin."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.post("/frame/{cam_id}")
 async def post_frame(cam_id: str, request: Request):
     jpeg = await request.body()
