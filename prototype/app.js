@@ -211,16 +211,18 @@
     return best;
   }
 
-  /* After a reload: bring back the camera-informed twin, if it is for a preset we still have. */
+  /* After a reload: bring back the twin that was on screen (its preset, and the phones' changes to it).
+   * True if it did. Only for a preset we still have. */
   function restoreInformed() {
     try {
       const kept = JSON.parse(sessionStorage.getItem(INFORMED_STORE) || 'null');
-      const key = kept && kept.seen.length && Object.keys(LAYOUTS).find(k => LAYOUTS[k].name === kept.plan.name);
-      if (!key) return;
+      const key = kept && Object.keys(LAYOUTS).find(k => LAYOUTS[k].name === kept.plan.name);
+      if (!key) return false;
       $('preset').value = key;
       loadLayout(kept.layout, kept);
-      log('Restored the twin with the phones\' changes (' + kept.seen.length + ' rooms).');
-    } catch (e) { sessionStorage.removeItem(INFORMED_STORE); }
+      if (kept.seen.length) log('Restored the twin with the phones\' changes (' + kept.seen.length + ' room' + (kept.seen.length > 1 ? 's' : '') + ').');
+      return true;
+    } catch (e) { sessionStorage.removeItem(INFORMED_STORE); return false; }
   }
 
   function setView(mode) {
@@ -420,8 +422,8 @@
     setView('2d');
     setInterval(showLive, 1000);
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
-    loadLayout(F.clone(LAYOUTS[$('preset').value]));
-    if (FEED.presenter) restoreInformed();
+    // Read the remembered twin BEFORE the default layout loads: loading a layout overwrites what is remembered.
+    if (!(FEED.presenter && restoreInformed())) loadLayout(F.clone(LAYOUTS[$('preset').value]));
     if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
       $('pages').hidden = false; $('setup').hidden = $('preset').hidden = true;
       FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});
