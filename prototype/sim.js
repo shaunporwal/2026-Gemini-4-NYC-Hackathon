@@ -356,6 +356,32 @@
     return null;
   }
 
+  /* Returns {layout, rooms} = a NEW layout with a Gemini observation applied (what a photo or video of
+   * some rooms shows), and the names of the rooms it matched. null if it matched no room.
+   * obs = {rooms:[{name, people, color}], wallColor, objects:[...], openings:[{id, locked}], notes:[...]} */
+  function applyObservation(layout, obs) {
+    if (!obs || typeof obs !== 'object') return null;
+    const L = clone(layout), seen = [], list = v => (Array.isArray(v) ? v : []).filter(o => o && typeof o === 'object');
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    for (const o of list(obs.rooms)) {
+      const r = L.rooms.find(room => same(room.name, o.name));
+      if (!r) continue;
+      if (Number.isFinite(+o.people)) r.people = Math.round(+o.people);
+      if (typeof o.color === 'string') r.color = o.color;
+      seen.push(r);
+    }
+    if (!seen.length) return null;
+    const inSeen = o => seen.some(r => o.x >= r.x && o.y >= r.y && o.x < r.x + r.w && o.y < r.y + r.h);
+    L.objects = list(L.objects).filter(o => !inSeen(o)).concat(list(obs.objects).filter(inSeen));   // new furniture replaces old, in these rooms only
+    if (typeof obs.wallColor === 'string') L.wallColor = obs.wallColor;
+    for (const o of list(obs.openings)) {
+      const target = openingsOf(L).find(e => same(e.id, o.id));
+      if (target) target.locked = !!o.locked;
+    }
+    L.notes = obs.notes;
+    return { layout: L, rooms: seen.map(r => r.name) };
+  }
+
   function actionLabel(a) {
     return a.action === 'unlock' ? 'Unlock ' + String(a.id).toUpperCase()
       : a.action === 'unlock_all' ? 'Unlock all'
@@ -363,7 +389,7 @@
       : String(a.action);
   }
 
-  const api = { Sim, run, applyAction, actionLabel, validateLayout, clone, openingsOf,                 DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
+  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireSim = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -10,6 +10,7 @@
 <header>
   <h1>Fire Twin</h1>
   <select id="preset" aria-label="Layout"></select>
+  <button id="dim">3D</button>
   <button id="setup">Setup</button>
 </header>
 
@@ -17,12 +18,17 @@
 
 <section id="stage">
   <canvas id="cv"></canvas>
+  <canvas id="cv3d" hidden></canvas>
   <span class="tag">Sample data</span>
 </section>
 
 <div id="stats"></div>
 
 <aside>
+  <table id="seenTable" hidden>
+    <thead><tr><th>Gemini saw</th></tr></thead>
+    <tbody id="seen"></tbody>
+  </table>
   <table>
     <thead><tr><th>Fix candidate</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
     <tbody id="fixes"></tbody>
@@ -47,18 +53,22 @@
 </footer>
 
 <dialog id="setupDlg">
-  <form method="dialog" class="dlgHead"><h2>Setup</h2><button>Close</button></form>
+  <form method="dialog" class="dlgHead"><h2>Setup</h2><button class="primary">Done</button></form>
   <div class="row">
     <label>Speed <input id="speed" type="range" min="4" max="60" value="16"></label>
     <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
   </div>
-  <label>Gemini API key <input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
-  <label>Model <input id="model" type="text" value="gemini-4-hydrogen"></label>
+  <label>Gemini API key <span id="keyState"></span><input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
+  <div class="row">
+    <label>Fast model: photos, PA <input id="model" type="text" value="gemini-4-hydrogen"></label>
+    <label>Reasoning: plan, fixes <input id="deep" type="text" value="gemini-4-neon"></label>
+  </div>
   <div class="options">
     <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
     <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>
   </div>
-  <label>Floor plan (photo or PDF) → twin <input id="photo" type="file" accept="image/*,application/pdf"></label>
+  <label>Floor plan and/or video → new twin <input id="media" type="file" multiple accept="image/*,application/pdf,video/*"></label>
+  <label>Room photo or video → update this twin <input id="walk" type="file" multiple accept="image/*,video/*"></label>
   <label>Layout JSON <textarea id="json" rows="3" spellcheck="false"></textarea></label>
   <div class="row"><button id="loadJson">Load JSON</button></div>
 </dialog>
@@ -66,6 +76,8 @@
 <script src="layouts.js"></script>
 <script src="sim.js"></script>
 <script src="render.js"></script>
+<script src="vendor/three.bundle.js"></script>
+<script src="render3d.js"></script>
 <script src="gemini.js"></script>
 <script src="app.js"></script>
 </body>

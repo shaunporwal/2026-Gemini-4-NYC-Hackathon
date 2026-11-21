@@ -4,12 +4,19 @@
   const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts;
   const $ = id => document.getElementById(id);
   const SEED = 7;
+  const KEY_STORE = 'fireTwinGeminiKey';
+  const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
   const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
-  const view = window.FireRender.create($('cv'), $('stage'));
+  /* Two views of the same sim: 2D canvas and 3D voxels. Same interface; the 3D one starts on first use. */
+  const VIEWS = {
+    '2d': { canvas: 'cv', make: window.FireRender, other: '3d' },
+    '3d': { canvas: 'cv3d', make: window.FireRender3D, other: '2d' }
+  };
+  let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
-  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim() });
+  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
 
   function el(tag, text, cls) {
@@ -45,6 +52,22 @@
     showLabel();
   }
 
+  /* What Gemini saw or heard in the last floor plan or video. Empty list = hide. */
+  function showSeen(notes) {
+    $('seen').replaceChildren(...notes.map(n => { const tr = el('tr'); tr.append(el('td', n)); return tr; }));
+    $('seenTable').hidden = !notes.length;
+  }
+
+  function setView(mode) {
+    const v = VIEWS[mode];
+    Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
+    v.view = v.view || v.make.create($(v.canvas), $('stage'));
+    view = v.view;
+    $('dim').textContent = v.other.toUpperCase();
+    $('dim').dataset.next = v.other;
+    if (state.sim) view.fit(state.sim);
+  }
+
   function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
 
   function loadLayout(L) {
@@ -56,6 +79,7 @@
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
+    showSeen(G.notesOf(L));
     reset();
     say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
   }
@@ -162,7 +186,8 @@
     });
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
-    on('cv', 'click', onCanvasClick);
+    Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
+    on('dim', 'click', guarded('3D view', () => setView($('dim').dataset.next)));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
     on('reset', 'click', () => reset());
@@ -171,15 +196,33 @@
     on('apply', 'click', applyFix);
     on('loadJson', 'click', guarded('Layout', () => loadLayout(JSON.parse($('json').value))));
     on('preset', 'change', () => loadLayout(F.clone(LAYOUTS[$('preset').value])));
-    on('photo', 'change', guarded('Photo', async ev => {
-      const file = ev.target.files[0]; ev.target.value = '';
-      if (!file) return;
-      log('Gemini: reading the floor plan…');
-      loadLayout(await G.layoutFromPhoto(cfg(), file, LAYOUTS.demo));
-      log('Layout loaded from photo.');
+    /* job(files, status) -> {layout, note}. The status line shows each step and the time the call took. */
+    const fromGemini = (what, job) => guarded(what, async ev => {
+      const files = [...ev.target.files]; ev.target.value = '';
+      if (!files.length) return;
+      $('setupDlg').close();
+      const t0 = Date.now(), res = await job(files, msg => log('Gemini: ' + msg));
+      loadLayout(res.layout);
+      log(what + ': ' + res.note + ' (' + Math.round((Date.now() - t0) / 1000) + ' s)');
+    });
+    on('media', 'change', fromGemini('New twin', async (files, status) =>
+      ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
+    on('walk', 'change', fromGemini('Update', async (files, status) => {
+      const res = F.applyObservation(state.layout, await G.observe(cfg(), files, state.layout, status));
+      if (!res) throw new Error('Gemini did not match a room of this layout');
+      return { layout: res.layout, note: 'Gemini placed this in ' + res.rooms.join(' + ') + '.' };
     }));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
+    /* The key survives a reload of this tab (sessionStorage). It is never written to a file. */
+    const keyChanged = () => {
+      sessionStorage.setItem(KEY_STORE, cfg().key);
+      $('keyState').textContent = cfg().key ? KEY_SAVED : KEY_MISSING;
+    };
+    $('key').value = sessionStorage.getItem(KEY_STORE) || '';
+    on('key', 'input', keyChanged);
+    keyChanged();
+    setView('2d');
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);
   }
