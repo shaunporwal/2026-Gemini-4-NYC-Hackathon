@@ -1,5 +1,8 @@
 # Map JSON Schema (v2)
 
+This schema governs the TypeScript grid-map app. The current Fire Twin uses the rectangle format described at the end of this document. See [the current Fire Twin demo guide](../prototype/README.md) for launching the Malin scene and matched awareness replay.
+
+
 The map file is the **single source of truth for the venue**. Everything that is drawn or simulated
 comes from it. **Everything physical is a character in the grid**: walls, exits, tables, chairs and
 people. Only things that need extra numbers (cameras, named zones) are lists.

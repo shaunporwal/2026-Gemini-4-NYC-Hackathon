@@ -1,4 +1,7 @@
 # map/ (owner: Jacob)
+
+This document covers the TypeScript grid-map app. The current Malin Fire Twin controls and replay are documented in [the demo guide](../../../prototype/README.md).
+
 Turns map JSON into the static `MapModel` that every other module reads. Spec: `docs/MAP_SCHEMA.md`.
 
 | File | Job |

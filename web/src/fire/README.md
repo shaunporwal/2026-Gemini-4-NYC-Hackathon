@@ -1,4 +1,10 @@
 # fire/ (owner: TBD)
+
+The responsibilities below describe the modular integration target. The current grid app wires simulation and controls through `web/src/main.ts` and `web/src/crowd/voxelSimulation.ts`.
+
+
+This document covers the TypeScript grid-map app. The current Malin Fire Twin controls and replay are documented in [the demo guide](../../../prototype/README.md).
+
 Fire and smoke spread on the grid. **The model design is up to the owner** (see open questions in `docs/PLAN.md`).
 
 - **Implements:** `SimSystem` (`init`, `step`, `reset`).

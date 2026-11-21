@@ -1,5 +1,12 @@
 # Team Plan (6 hours, 4 people)
 
+## Current delivery status
+
+The team demonstration runs from `prototype/` using [the root quick start](../README.md#open-the-current-fire-twin). Ruhan's simulation work includes crowd movement, doorway queue measurements, exit awareness and matched replay. Shaun's media-to-twin work and 3D view are integrated there.
+
+The tables below retain the original TypeScript work allocation and kickoff schedule. The grid-map app also runs the shared engine through `web/src/crowd/voxelSimulation.ts`. Remaining integration work includes live observations into the demonstrated UI and broader evaluation.
+
+
 ## Ownership
 Each module has **one owner**. Others may read it and open small PRs, but the owner merges.
 
@@ -30,7 +37,7 @@ Each module has **one owner**. Others may read it and open small PRs, but the ow
 - No renderer yet → systems can log `StatsSnapshot` to the console.
 
 ## Git workflow
-- `main` must always run (`npm run dev` works). Pull often.
+- Verify the current `prototype/` demo in the browser before publishing. For `web/` changes, also run its build. Pull often.
 - Short-lived branches: `<name>/<feature>` (e.g. `jacob/camera-cones`). Small PRs or direct
   pushes to `main` for tiny, self-contained changes inside your own folder.
 - Commit messages: `area: what changed` (e.g. `map: add visible-cell raycast`).
@@ -39,7 +46,7 @@ Each module has **one owner**. Others may read it and open small PRs, but the ow
 - [ ] Fire/smoke model details and casualty rule (fire owner)
 - [x] Exact `Observation` payload + update rate from Gemini (feed owner): `docs/CONTRACTS.md`, `server/README.md`
 - [ ] How live counts reconcile with existing agents (spawn/remove vs. adjust) (crowd + feed)
-- [ ] Demo venue: keep `demo-hall.json` or model the hackathon venue?
+- [x] Current demo venue is the Gemini-derived Malin preset in `prototype/layouts.js`.
 - [x] Server language (Python vs. Node) (feed owner): Python, DECISIONS #23
 - [ ] Who builds floor plan photo → map JSON (schema v2), and with which Gemini 4 model (DECISIONS #20)
 - [ ] Confirm `gemini-decision-1` counts toward the two-Gemini-4-models rule; if not, Carbon for the floor plan covers it

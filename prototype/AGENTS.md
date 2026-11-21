@@ -1,5 +1,8 @@
 # AGENTS.md
 
+The current team demo includes the Gemini-derived Malin preset, 2D/3D views, doorway queues and matched exit-awareness replay. Launch instructions and the browser verification path are in [README.md](README.md).
+
+
 Hackathon project (Gemini 4 NYC, 2026-11-21). One day. Speed to a working stage demo is the goal.
 
 ## Rules

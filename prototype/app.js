@@ -26,6 +26,7 @@
         rebuild: (room, urls) => rebuildRoom(room, urls), busy: () => detail.busy }) } }
   };
   let view = null;
+  let comparison = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
   const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
@@ -103,6 +104,9 @@
 
   /* New sim on the current layout. With ignitions: replay that fire. */
   function reset(ignitions) {
+    comparison = null;
+    $('awarenessResults').hidden = true;
+    state.annSeq++;
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions }));
     state.running = !!(ignitions && ignitions.length);
     state.annKey = ''; state.acc = 0;
@@ -257,6 +261,16 @@
     state.seen = new Set(restored ? restored.seen : []);
     remember();
     $('json').value = JSON.stringify(L);
+    for (const id of ['familiarExit', 'secondExit']) {
+      $(id).replaceChildren(...L.exits.map(o => {
+        const option = el('option', o.id + (o.name ? ' · ' + o.name : '') + (o.locked ? ' (locked)' : ''));
+        option.value = o.id;
+        return option;
+      }));
+    }
+    const open = L.exits.filter(o => !o.locked);
+    $('familiarExit').value = open[0]?.id || L.exits[0].id;
+    $('secondExit').value = open[1]?.id || L.exits[0].id;
     $('apply').disabled = true;
     showSeen(G.notesOf(L));
     live.clear(); showLive();
@@ -298,6 +312,7 @@
 
   /* Candidates come from search (each locked opening) and from Gemini. The sim scores all of them. */
   async function findFix() {
+    if (comparison) return log('Use Reset to leave the awareness comparison before finding layout fixes.');
     const ign = currentFire().slice();
     if (!ign.length) return log('Start a fire first.');
     $('fix').disabled = true;
@@ -336,13 +351,91 @@
   }
 
   function applyFix() {
+    if (comparison) return log('Use Reset to leave the comparison before applying a layout fix.');
     if (!state.fix) return;
     state.layout = state.fix.layout; state.label = state.fix.label;
     reset(state.fix.ign);
     say('Fix applied: ' + state.label + '. Same fire, new run.');
   }
 
+  function startComparison() {
+    const ignitions = currentFire().slice();
+    if (!ignitions.length) return log('Click the floor to start a fire before comparing.');
+    const familiar = $('familiarExit').value, second = $('secondExit').value;
+    const cueSeconds = +$('cueSeconds').value, reception = +$('cueReception').value / 100;
+    if (familiar === second) return log('Choose two different exits.');
+    if (state.layout.exits.some(o => [familiar, second].includes(o.id) && o.locked))
+      return log('Unlock both selected exits before comparing.');
+    if (!Number.isFinite(cueSeconds) || cueSeconds < 0 || cueSeconds > 120
+      || !Number.isFinite(reception) || reception < 0 || reception > 1)
+      return log('Use a cue time from 0 to 120 seconds and reception from 0 to 100%.');
+    const options = Object.assign(simOpts(), { ignitions, horizonSeconds: 120 });
+    comparison = {
+      baseline: new F.Sim(F.clone(state.layout), Object.assign({}, options,
+        { awareness: { familiar, second, cueSeconds: Infinity, reception: 0 } })),
+      guided: new F.Sim(F.clone(state.layout), Object.assign({}, options,
+        { awareness: { familiar, second, cueSeconds, reception } }))
+    };
+    state.annSeq++;
+    state.acc = 0;
+    state.running = true;
+    state.lastIgn = ignitions;
+    $('awarenessResults').hidden = false;
+    $('awarenessConfig').textContent = 'Seed ' + SEED + ' · ' + familiar + ' familiar · cue for ' + second
+      + ' at ' + cueSeconds + ' s after alarm · ' + Math.round(reception * 100) + '% reception. '
+      + 'Both runs end at 120 s after alarm or when everyone has exited or gone down. Placement, delays and fire settings are matched. Reception is a scenario assumption.';
+    selectComparisonView();
+  }
+
+  function selectComparisonView() {
+    if (!comparison) return;
+    state.sim = comparison[$('awarenessView').value];
+    state.label = $('awarenessView').value === 'guided' ? 'With announcement' : 'Familiar exit only';
+    view.fit(state.sim);
+    buildQueueMenu(state.sim);
+    showLabel();
+    updateComparison();
+  }
+
+  function updateComparison() {
+    const { baseline, guided } = comparison;
+    const tickKey = baseline.tick + '/' + guided.tick;
+    if (comparison.lastTickKey === tickKey) return;
+    comparison.lastTickKey = tickKey;
+    const measure = sim => {
+      const s = sim.stats(), queues = sim.queueStats();
+      return [s.out + '/' + s.total, s.active, s.down,
+        sim.done && s.out === s.total ? (sim.lastOutTick * F.DT) + ' s' : sim.done ? 'Not reached' : 'Pending',
+        queues.reduce((sum, q) => sum + q.waitSeconds, 0).toFixed(1) + ' person-s',
+        smokeValue(queues.reduce((sum, q) => sum + q.smokeSeconds, 0)) + ' smoke-s',
+        sim.awarenessEvents.length, sim.exitUse[sim.awareness.familiar] || 0, sim.exitUse[sim.awareness.second] || 0];
+    };
+    const a = measure(baseline), b = measure(guided);
+    $('awarenessMetrics').replaceChildren(...['Out', 'Still inside', 'Down', 'All out at', 'Total queue wait',
+      'Smoke while queued', 'Learned second exit', 'Used familiar exit', 'Used second exit'].map((name, i) => {
+        const row = el('tr');
+        [name, a[i], b[i]].forEach(value => row.append(el('td', value)));
+        return row;
+      }));
+    const complete = baseline.done && guided.done;
+    $('awarenessStatus').textContent = (complete ? 'Complete' : 'Running') + ' · '
+      + Math.max(baseline.tick, guided.tick) * F.DT + ' s · '
+      + (guided.cueDelivered ? 'Announcement delivered to ' + guided.awarenessEvents.length + ' people.'
+        : 'Announcement pending.');
+    $('awarenessEvents').replaceChildren(...guided.awarenessEvents.map(e =>
+      el('div', 'Person ' + e.person + ' learned ' + e.exit + ' at ' + e.seconds + ' s.')));
+    $('pa').textContent = guided.cueDelivered
+      ? 'Cue for ' + guided.awareness.second + ' delivered. ' + guided.awarenessEvents.length + ' occupants learned the exit.'
+      : 'Everyone starts knowing ' + guided.awareness.familiar + '. Cue for ' + guided.awareness.second
+        + ' scheduled at ' + guided.awareness.cueSeconds + ' s after alarm.';
+    if (complete) {
+      state.running = false;
+      $('pa').textContent = 'Matched replay complete. Compare evacuation, waiting and smoke exposure below.';
+    }
+  }
+
   function onCanvasClick(ev) {
+    if (comparison) return log('Use Reset to edit the room or start a different fire.');
     const sim = state.sim, c = view.cellAt(sim, ev);
     if (!c) return;
     const tag = sim.tagOf[c.i];
@@ -360,7 +453,14 @@
   function frame(t) {
     const dt = Math.min(0.1, (t - state.last) / 1000), sim = state.sim;
     state.last = t;
-    if (state.running && !sim.done) {
+    if (state.running && comparison) {
+      state.acc += dt * +$('speed').value;
+      for (let n = 0; state.acc >= 1 && n < 40; n++, state.acc--) {
+        comparison.baseline.step();
+        comparison.guided.step();
+      }
+      updateComparison();
+    } else if (state.running && !sim.done) {
       state.acc += dt * +$('speed').value;
       for (let n = 0; state.acc >= 1 && n < 40 && !sim.done; n++, state.acc--) sim.step();
       checkAnnounce();
@@ -386,7 +486,13 @@
     document.querySelectorAll('#views button').forEach(b => b.addEventListener('click', guarded('View', () => setView(b.dataset.view))));
     on('queueOpening', 'change', () => updateQueues(state.sim));
     on('setup', 'click', () => $('setupDlg').showModal());
-    on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
+    on('pause', 'click', () => {
+      state.running = !state.running && (comparison
+        ? !(comparison.baseline.done && comparison.guided.done)
+        : state.sim.alarmTick >= 0 && !state.sim.done);
+    });
+    on('compareAwareness', 'click', guarded('Comparison', startComparison));
+    on('awarenessView', 'change', selectComparisonView);
     on('reset', 'click', () => reset());
     on('replay', 'click', () => reset(currentFire().slice()));
     on('fix', 'click', guarded('Fix', findFix));

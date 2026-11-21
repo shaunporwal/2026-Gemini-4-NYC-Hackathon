@@ -1,4 +1,10 @@
 # crowd/ (owner: TBD)
+
+The implemented adapter is `voxelSimulation.ts`, which supplies grid terrain, cell size and spawn cells to `prototype/sim.js`. The interfaces and live-observation behavior below are integration targets.
+
+
+This document covers the TypeScript grid-map app. The current Malin Fire Twin controls and replay are documented in [the demo guide](../../../prototype/README.md).
+
 Individual evacuation agents.
 
 - **Implements:** `SimSystem`.

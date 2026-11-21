@@ -1,4 +1,7 @@
 # server/ (owner: TBD, same person as web/src/feed)
+
+This service handles phone camera/audio perception. The current Fire Twin UI performs its Gemini media requests directly from the browser using the Setup key. See [the current Fire Twin demo guide](../prototype/README.md) for launching the Malin scene and matched awareness replay.
+
 Python/FastAPI. **Owns the Gemini API key.** Phone cameras in, `Observation`s out (`docs/CONTRACTS.md`).
 It never runs the simulation.
 

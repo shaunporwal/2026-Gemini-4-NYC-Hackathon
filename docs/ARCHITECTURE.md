@@ -1,5 +1,16 @@
 # Architecture
 
+## Current Fire Twin runtime
+
+The demo entry point is `prototype/index.html`. [Launch instructions](../README.md#open-the-current-fire-twin) select the Malin preset and 3D view.
+
+`layouts.js` supplies rectangle layouts. `app.js` owns UI state and steps `sim.js` every 0.5 simulated seconds. `render.js` and `render3d.js` read that same simulation. `gemini.js` handles media interpretation, PA text and proposed fixes.
+
+Matched awareness replay creates two simulations with identical layout, seed and ignitions. Separate seeded randomness governs cue reception. Routing fields are shared by knowledge group, with one field for the familiar exit and another for both selected exits. Each person uses the field matching their knowledge. Queue attribution follows that person's routing field. Both runs have a 120-second observation horizon.
+
+The TypeScript app currently uses `crowd/voxelSimulation.ts` to adapt this engine to grid maps. The modular systems and live-observation pipeline below describe the TypeScript integration design.
+
+
 ## Big picture
 
 ```

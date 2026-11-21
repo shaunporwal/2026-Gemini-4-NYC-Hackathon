@@ -18,7 +18,8 @@ and casualties. Goal: **disaster avoidance**.
 ```
 docs/            Vision, architecture, map schema, contracts, plan, decisions
 schemas/         map.schema.json (JSON Schema for map files)
-web/             Vite + TypeScript + three.js app (the whole simulation runs here)
+prototype/       Current Fire Twin demo, plain JS with 2D/3D views and matched replay
+web/             Vite + TypeScript grid-map and camera development app
   public/maps/   Map JSON files (demo-hall.json is the reference map)
   src/shared/    types.ts (copied from docs/CONTRACTS.md), constants, pure helpers
   src/map/       loader/validation, object catalog, camera visible cells
@@ -32,8 +33,9 @@ server/          Python/FastAPI: phone cameras → Gemini → Observations over 
 ```
 
 ## Commands
-`web/` is Vite + TypeScript + three.js. The map module and a starter renderer exist; the sim modules don't yet.
-`prototype/` is a separate plain-JS demo (2D canvas, its own rules in `prototype/AGENTS.md`).
+The current team demo is `prototype/index.html`. Follow the root README to serve it on port 5174, select the Gemini-derived Malin preset and switch to 3D. It includes doorway queues and exit-awareness comparisons. Its rules are in `prototype/AGENTS.md`.
+
+`web/` is the TypeScript grid-map app. Its `crowd/voxelSimulation.ts` adapter uses `prototype/sim.js`. The following commands apply to that app.
 ```bash
 cd web
 npm install
@@ -56,7 +58,7 @@ Load another map with `?map=/maps/cafe.json`. `web/src/shared/types.ts` must sta
 - **No API keys in `web/`.** Gemini is only called from `server/` (key in `server/.env`, gitignored).
 - **Entry rule: at least two Gemini 4 models, each with one clear job**, and media as the core input.
   Don't remove a model or blur its job without telling the team (`docs/DECISIONS.md` #19).
-- **`main` must always run.** Run `npm run build` before committing. Keep the demo map working.
+- **`main` must always run.** For changes to `web/`, run its build before committing. For the plain-JS demo, follow the browser verification procedure in `prototype/AGENTS.md`. Keep both entry points usable.
 - **Hackathon speed.** Prefer simple, working, readable code over abstractions. No new
   dependencies without a good reason. No test frameworks unless asked.
 
