@@ -24,6 +24,7 @@ AGENT_MODEL = os.getenv("AGENT_MODEL", "gemini-4-hydrogen")
 GUIDE_MODEL = os.getenv("GUIDE_MODEL", "gemini-4-neon")
 MAX_TURNS = 8          # model turns per question (each may call several tools)
 HISTORY_TURNS = 6      # earlier chat turns sent back to the model
+GROUNDED_P = float(os.getenv("GROUNDED_P", "0.5"))   # Decisions' P(all numbers come from tool results) an answer needs
 
 
 def sim(op: str, layout: dict, fire_rate: float, **extra) -> dict:
@@ -59,11 +60,11 @@ TOOLS = [types.Tool(function_declarations=[
         name="run_scenario",
         description="Simulate one event on the current venue and return its outcome: people lost and why (fire, smoke, crush), "
                     "falls, evacuation time, exit use, busiest openings. Crowd crush and falls are modelled. Kinds: "
-                    "fire (needs room), fall (fire in room + a person falling at door), crush (everyone evacuates, no fire), "
-                    "blocked (everyone evacuates with exit blocked).",
+                    "fire (needs room), fall (a person falls at door; with room: during a fire there, without room: during an "
+                    "evacuation with no fire), crush (everyone evacuates, no fire), blocked (everyone evacuates with exit blocked).",
         parameters_json_schema={"type": "object", "properties": {
             "kind": {"type": "string", "enum": ["fire", "fall", "crush", "blocked"]},
-            "room": {"type": "string", "description": "exact room name, for fire and fall"},
+            "room": {"type": "string", "description": "exact room name: needed for fire, optional for fall"},
             "exit": {"type": "string", "description": "exit id, for blocked"},
             "door": {"type": "string", "description": "door or exit id where the person falls, for fall"},
         }, "required": ["kind"]}),
@@ -112,7 +113,7 @@ Rules:
 
 
 def ask(question: str, history: list, layout: dict, fire_rate: float, emit) -> dict:
-    """One chat turn. Returns {text, openingId?, suggestions, replay?, tools}."""
+    """One chat turn. Returns {text, openingId?, suggestions, replay?, tools, grounded?}."""
     client = P.get_client()
     contents = []
     for h in (history or [])[-HISTORY_TURNS:]:
@@ -168,34 +169,64 @@ def ask(question: str, history: list, layout: dict, fire_rate: float, emit) -> d
             return {"ok": True, "label": s["label"]}
         return {"error": "unknown tool " + name}
 
-    for _ in range(MAX_TURNS):
-        resp = client.models.generate_content(model=AGENT_MODEL, contents=contents, config=config)
-        cand = (resp.candidates or [None])[0]
-        if not cand or not cand.content or not cand.content.parts:
-            break
-        contents.append(cand.content)   # as returned, so thought signatures go back to the model
-        calls = []
-        for part in cand.content.parts:
-            if part.thought and part.text:
-                emit({"type": "thought", "text": part.text})
-            elif part.function_call:
-                calls.append(part.function_call)
-            elif part.text:
-                reply["text"] += part.text
-        if not calls:
-            break
-        responses = []
-        for fc in calls:
-            args = dict(fc.args or {})
-            reply["tools"].append(fc.name)
+    results = []   # every tool result of this question, for the number check
+
+    def run_loop():
+        reply["text"] = ""
+        for _ in range(MAX_TURNS):
+            resp = client.models.generate_content(model=AGENT_MODEL, contents=contents, config=config)
+            cand = (resp.candidates or [None])[0]
+            if not cand or not cand.content or not cand.content.parts:
+                break
+            contents.append(cand.content)   # as returned, so thought signatures go back to the model
+            calls = []
+            for part in cand.content.parts:
+                if part.thought and part.text:
+                    emit({"type": "thought", "text": part.text})
+                elif part.function_call:
+                    calls.append(part.function_call)
+                elif part.text:
+                    reply["text"] += part.text
+            if not calls:
+                break
+            responses = []
+            for fc in calls:
+                args = dict(fc.args or {})
+                reply["tools"].append(fc.name)
+                try:
+                    result = call_tool(fc.name, args)
+                except Exception as e:
+                    result = {"error": f"{type(e).__name__}: {e}"[:300]}
+                results.append({fc.name: result})
+                responses.append(types.Part.from_function_response(name=fc.name, response={"result": result}))
+            contents.append(types.Content(role="user", parts=responses))
+            reply["text"] = ""   # only the text after the last tool call is the answer
+        reply["text"] = reply["text"].strip()
+
+    run_loop()
+    # Number check (Decisions API): every number in the answer must come from this question's tool results.
+    # One rewrite if it fails; if the rewrite fails too, the answer says so.
+    if reply["text"] and results:
+        for attempt in range(2):
             try:
-                result = call_tool(fc.name, args)
+                p = P.check_numbers(json.dumps(results), reply["text"])
             except Exception as e:
-                result = {"error": f"{type(e).__name__}: {e}"[:300]}
-            responses.append(types.Part.from_function_response(name=fc.name, response={"result": result}))
-        contents.append(types.Content(role="user", parts=responses))
-        reply["text"] = ""   # only the text after the last tool call is the answer
-    reply["text"] = reply["text"].strip() or "I could not finish that answer. Try asking again, more narrowly."
+                emit({"type": "step", "text": f"Number check unavailable ({type(e).__name__})"})
+                break
+            reply["grounded"] = round(p, 2)
+            emit({"type": "step", "text": f"Number check: {p:.2f} that every number comes from the simulations"})
+            if p >= GROUNDED_P:
+                break
+            if attempt == 0:
+                emit({"type": "step", "text": "Rewriting: a number was not in the simulation results"})
+                contents.append(types.Content(role="user", parts=[types.Part(text=
+                    "A check found a number in your answer that is not in the tool results of this conversation. "
+                    "Rewrite the answer using only numbers from the tool results (or simple sums, differences and percentages of them). "
+                    "Do not call tools again unless a number you need is missing.")]))
+                run_loop()
+            else:
+                reply["text"] += "\n\n(Check: some numbers in this answer could not be matched to the simulation results.)"
+    reply["text"] = reply["text"] or "I could not finish that answer. Try asking again, more narrowly."
     return reply
 
 

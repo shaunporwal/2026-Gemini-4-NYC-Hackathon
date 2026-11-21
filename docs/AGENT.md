@@ -32,7 +32,8 @@ The agent is a Gemini tool-use loop. The tools are thin wrappers over the world 
 | `highlight_on_map(cells, label, replay_id?)` | Puts a marker or area on the organizer's map, optionally with a replay button |
 
 Rules for the agent:
-- Never invent numbers: every figure in an answer comes from a tool result.
+- Never invent numbers: every figure in an answer comes from a tool result. **Enforced** by a Decisions API check on each answer
+  (`perception.check_numbers`, about 0.3 s): below `GROUNDED_P` the agent rewrites once, then the answer is flagged (DECISIONS C13).
 - Always say how much of the result rests on **estimated** people, and how fresh the camera coverage is.
 - Name places the way the organizer does (zone names, exit names), not cell indices.
 - Keep answers short: the headline number, the place, one sentence of why, and the map highlight.

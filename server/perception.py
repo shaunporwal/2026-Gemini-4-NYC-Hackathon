@@ -89,6 +89,23 @@ def build_questions(has_exit: bool) -> dict:
             "instructions": "How crowded is the visible floor area?",
             "criteria": CROWDING_LEVELS,  # ordered low -> high, scored 0..4
         },
+        # Crowd risks the simulator models (fall, crush). They warn; they never start a simulated event (DECISIONS C9).
+        "person_down": {
+            "type": "noul",
+            "instructions": "Is any person lying or fallen on the floor (not sitting on a chair or crouching)?",
+            "criteria": {
+                "true_description": "Someone is lying or fallen on the floor",
+                "false_description": "Nobody is lying on the floor",
+            },
+        },
+        "crowd_surge": {
+            "type": "noul",
+            "instructions": "Are people pushing, pressed tightly against each other, or surging toward one point?",
+            "criteria": {
+                "true_description": "People are pressed together or pushing in one direction",
+                "false_description": "People have room and move or stand normally",
+            },
+        },
         "hazard": {
             "type": "choice",
             "instructions": "Is fire or smoke visible anywhere in this frame?",
@@ -137,6 +154,8 @@ def run_decisions(jpeg: bytes, questions: dict) -> dict:
         "hazard_conf": float(a["hazard"].confidence),
         "count_bucket": a["people_count"].choice,
         "count_conf": float(a["people_count"].confidence),
+        "person_down": float(a["person_down"].noul),  # P(yes)
+        "crowd_surge": float(a["crowd_surge"].noul),
         "ms": round((time.time() - t0) * 1000),
     }
     if "exit_blocked" in questions:
@@ -207,3 +226,21 @@ def run_audio(wav: bytes) -> dict:
     )
     a = result.answers["audio_event"]
     return {"event": a.choice, "conf": float(a.confidence), "ms": round((time.time() - t0) * 1000)}
+
+
+NUMBER_CHECK = {"grounded": {
+    "type": "noul",
+    "instructions": "Does every number in the answer appear in the tool results, or follow from them by simple arithmetic "
+                    "(a sum, difference or percentage)? Counts written as words count as numbers.",
+    "criteria": {
+        "true_description": "All numbers in the answer are supported by the tool results",
+        "false_description": "At least one number in the answer is not in the tool results and cannot be computed from them",
+    },
+}}
+
+
+def check_numbers(results: str, answer: str) -> float:
+    """Decisions API on text: P(every number in the agent's answer comes from its tool results). About 0.3 s."""
+    r = get_client().decisions.create(model=DECISION_MODEL, questions=NUMBER_CHECK, input=[
+        {"type": "text", "text": "Tool results:\n" + results[-20000:] + "\n\nAnswer:\n" + answer}])
+    return float(r.answers["grounded"].noul)

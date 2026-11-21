@@ -210,6 +210,15 @@
       : o.events.includes('alarm') ? 'Microphone in ' + room.name + ' hears an alarm.'
       : o.events.includes('screaming') ? 'Microphone in ' + room.name + ' hears screaming.' : '';
     if (cause) log(cause + ' Review the camera observation.');
+    /* Person down / crowd surge (Decisions API): a warning with a what-if the organizer can run. Never starts a simulation (C9). */
+    for (const type of ['person_down', 'crowd_surge']) {
+      const fresh = o.events.includes(type) && !(before && before.events.includes(type));
+      if (!fresh) continue;
+      const p = (o.crowdRisk || {})[type === 'person_down' ? 'personDown' : 'surge'];
+      log((type === 'person_down' ? 'Camera in ' + room.name + ' sees a person down' : 'Camera in ' + room.name + ' sees a crowd surge')
+        + (p != null ? ' (' + p + ')' : '') + '.');
+      if (window.FireAdvisor) window.FireAdvisor.crowdAlert(room.name, type, p);
+    }
     if (idle) rebuildRoom(room.name);
   }
 

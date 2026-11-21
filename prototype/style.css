@@ -179,3 +179,4 @@ td.good { color: var(--ok); font-weight: 700; }
 #liveView .strip { --thumb: 84px; --thumb-h: 44px; }
 #liveView.empty .join { grid-column: 1 / -1; grid-row: 1 / -1; max-width: none; align-self: stretch; --qr: var(--qr-big); }
 #liveView.empty .join span:not(.link) { display: inline; }
+.agent-message.crowd-alert{border-left:3px solid #e99f60;padding-left:10px}.agent-message.crowd-alert span{display:block;color:var(--muted)}

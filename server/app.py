@@ -14,6 +14,7 @@ Env flags:
   BASELINE=1      Hydrogen on every frame, no Decisions gating (the comparison baseline)
   HEARTBEAT_S=3   re-count at least this often while people are present
   COUNT_CONF=0.7  Decisions' count range overrides a stale Hydrogen count at this confidence
+  CROWD_P=0.7     person_down / crowd_surge need this probability on CROWD_STREAK=2 frames in a row
   WARMUP=1        one call per model at startup (avoids the cold-start first frame)
   SAVE_FRAMES=1   save frames + predictions to eval_frames/ (eval sessions only; off for the demo)
 """
@@ -48,6 +49,8 @@ HAZARD_STREAK = int(os.getenv("HAZARD_STREAK", "2"))  # consecutive frames befor
 EXIT_BLOCKED_P = float(os.getenv("EXIT_BLOCKED_P", "0.6"))
 AUDIO_CONF = float(os.getenv("AUDIO_CONF", "0.7"))
 AUDIO_TTL_S = float(os.getenv("AUDIO_TTL_S", "10"))  # an alarm/scream stays in events this long
+CROWD_P = float(os.getenv("CROWD_P", "0.7"))  # P(person down) or P(crowd surge) that counts on a frame
+CROWD_STREAK = int(os.getenv("CROWD_STREAK", "2"))  # consecutive frames before person_down / crowd_surge is raised
 
 METRICS = HERE / "metrics.csv"
 EVAL_DIR = HERE / "eval_frames"
@@ -91,6 +94,7 @@ def ensure_cam(cam_id: str):
         "h_count": 0, "h_people": [], "h_valid": False, "h_busy": False, "h_dirty": False,  # last Hydrogen result
         "hazard": "none", "hazard_conf": 0.0, "hazard_streak": 0,
         "exit_p": None,  # P(exit blocked) from the last frame, if the camera sees an exit
+        "down_p": 0.0, "surge_p": 0.0, "down_streak": 0, "surge_streak": 0,  # crowd risks, every frame
         "audio": None, "audio_conf": 0.0, "audio_ts": 0.0,
         "stream": {"ok": False, "latencyMs": None, "lastFrame": None, "frames": 0,
                    "decisionCalls": 0, "hydrogenCalls": 0, "audioCalls": 0, "error": None},
@@ -119,6 +123,10 @@ def observation(cam_id: str) -> dict:
         evs.append("exit_blocked")
     if c["audio"] and time.time() - c["audio_ts"] < AUDIO_TTL_S:
         evs.append(c["audio"])
+    if c["down_streak"] >= CROWD_STREAK:
+        evs.append("person_down")
+    if c["surge_streak"] >= CROWD_STREAK:
+        evs.append("crowd_surge")
     o = {
         "cameraId": cam_id,
         "pose": c.get("pose"),
@@ -132,6 +140,7 @@ def observation(cam_id: str) -> dict:
         "events": evs,
         "people": c["people"],
         "hazards": [{"type": c["hazard"], "confidence": round(c["hazard_conf"], 2)}] if c["hazard"] != "none" else [],
+        "crowdRisk": {"personDown": round(c["down_p"], 2), "surge": round(c["surge_p"], 2)},
         "exits": [{**g, "blocked": blocked, "p": round(c["exit_p"], 2)} for g in c["exits"]]
         if c["exit_p"] is not None else [],
         "stream": dict(c["stream"]),
@@ -288,6 +297,11 @@ async def camera_worker(cam_id: str):
                     c["hazard"], c["hazard_conf"] = "none", 0.0
 
                 c["exit_p"] = d.get("exit_blocked")
+
+                # Person down / crowd surge: raised after CROWD_STREAK frames in a row, like hazards. A warning only.
+                c["down_p"], c["surge_p"] = d["person_down"], d["crowd_surge"]
+                c["down_streak"] = c["down_streak"] + 1 if d["person_down"] >= CROWD_P else 0
+                c["surge_streak"] = c["surge_streak"] + 1 if d["crowd_surge"] >= CROWD_P else 0
 
                 was_present = c["present"]
                 c["present"] = d["people_present"] >= 0.5

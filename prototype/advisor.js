@@ -224,6 +224,41 @@
       return reply;
     }
   };
+  /* A camera warning (person down, crowd surge) in the assistant panel, with a "What if?" button. The button asks the
+   * agent to simulate that risk on the twin as it is now; nothing runs until the organizer clicks (DECISIONS C9). */
+  const ALERT = {
+    person_down: { title: 'Person down', ask: (room, doors) => 'A camera in ' + room + ' sees a person on the floor. If an evacuation started now and they ' +
+      'fell at ' + (doors[0] || 'the nearest doorway') + ', what would happen? Run it as a fall without fire' + (doors[0] ? ' at ' + doors[0] : '') +
+      ' on the current twin, compare with no fall, and tell me what staff should do.' },
+    crowd_surge: { title: 'Crowd surge', ask: room => 'A camera in ' + room + ' sees the crowd pushing or surging. If everyone evacuated now, ' +
+      'where would a crush happen and how bad would it be? Run the evacuation on the current twin, then test one change that would reduce it.' }
+  };
+  function doorsOf(roomName) {
+    const L = app().layout(), r = L.rooms.find(x => x.name === roomName);
+    if (!r) return [];
+    return F.openingsOf(L).filter(o => !o.locked && o.x >= r.x && o.y >= r.y && o.x < r.x + r.w && o.y < r.y + r.h).map(o => o.id);
+  }
+  function crowdAlert(room, type, p) {
+    const a = ALERT[type];
+    if (!a) return;
+    const doors = doorsOf(room), node = el('div', null, 'agent-message assistant crowd-alert');
+    node.append(el('strong', a.title + ' · ' + room), el('span', 'The camera reports this' + (p != null ? ' with probability ' + p : '') +
+      '. Nothing is simulated until you ask.' + (doors.length ? ' Doors of this room: ' + doors.join(', ') + '.' : '')));
+    const what = el('button', 'What if? ↗', 'text-button');
+    what.type = 'button';
+    what.addEventListener('click', () => {
+      const q = $('agentQuestion');
+      if (q.disabled) return app().log('The agent is busy or not connected. Try again in a moment.');
+      q.value = a.ask(room, doors);
+      $('agentForm').requestSubmit();
+    });
+    const wrap = el('div'); wrap.append(what); node.append(wrap);
+    $('agentMessages').append(node);
+    if (window.TwinAssistant) window.TwinAssistant.showPanel('assistantPanel');
+    node.scrollIntoView({ block: 'nearest' });
+  }
+  window.FireAdvisor = { crowdAlert };
+
   /* Connect when this page can reach the agent: the organizer's laptop (port 8765) with the server running. */
   if (FEED.presenter && window.TwinAssistant) {
     const tryConnect = () => FEED.info().then(info => {

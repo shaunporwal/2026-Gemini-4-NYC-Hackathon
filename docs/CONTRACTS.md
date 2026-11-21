@@ -140,7 +140,8 @@ export interface Observation {
   timestamp: number; // ms epoch, when the frame arrived
   peopleCount: number; // Decisions' fast estimate within ~1 s of a change, then Hydrogen's exact count
   density?: "empty" | "sparse" | "moderate" | "crowded" | "packed"; // Decisions, every frame
-  events?: string[]; // any of "fire", "smoke", "exit_blocked", "alarm", "screaming"
+  events?: string[]; // any of "fire", "smoke", "exit_blocked", "alarm", "screaming", "person_down", "crowd_surge"
+  crowdRisk?: { personDown: number; surge: number }; // Decisions P(yes) on this frame; the events need CROWD_STREAK frames
   summary?: string; // one-line scene description (Hydrogen); never identifies people
   /**
    * Estimated floor positions (cells, float), projected from foot points with the camera pose.
