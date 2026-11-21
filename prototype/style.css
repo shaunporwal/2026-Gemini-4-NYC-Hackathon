@@ -36,6 +36,7 @@
   --fs-title: 18px;
   --mono: ui-monospace, Menlo, monospace;
   --select-arrow-space: 44px;
+  --pa-line-h: 20px; --pa-h: calc(2 * var(--pa-line-h) + 14px);
   --qr: 112px; --qr-big: 220px; --tile-min: 220px; --thumb: 104px; --thumb-h: 60px;
 }
 
@@ -59,7 +60,8 @@ header select { flex: 1; min-width: 0; }
 #views button[aria-pressed="true"] { background-color: var(--control-hover); border-color: var(--focus); position: relative; font-weight: 600; }
 header button { flex: none; }
 
-#pa { grid-area: pa; min-height: var(--tap); display: flex; align-items: center; padding: 6px var(--gutter); border-radius: var(--radius); background-color: var(--pa-bg); border: 1px solid var(--pa-line); color: var(--pa-text); font-weight: 600; }
+/* Fixed height (2 lines), so a longer announcement never pushes the page down. A third line is cut. */
+#pa { grid-area: pa; height: var(--pa-h); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: var(--pa-line-h); padding: 6px var(--gutter); border-radius: var(--radius); background-color: var(--pa-bg); border: 1px solid var(--pa-line); color: var(--pa-text); font-weight: 600; }
 #pa:empty::before { content: "Tap the floor to start a fire."; font-weight: 400; }
 
 #stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
@@ -102,10 +104,11 @@ canvas { cursor: crosshair; border-radius: 4px; }
 #liveView.empty .qr { width: var(--qr-big); height: var(--qr-big); }
 
 /* Facts: one key-value row, not tiles. */
-#stats { grid-area: stats; display: flex; justify-content: space-between; gap: var(--gap); padding: 0 2px; }
+/* 4 equal columns and fixed-width numbers: nothing moves sideways when a count gains a digit. */
+#stats { grid-area: stats; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); padding: 0 2px; }
 .fact { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .fact span { color: var(--muted); font-size: var(--fs-small); }
-.fact b { font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
+.fact b { font-size: var(--fs-title); font-variant-numeric: tabular-nums; min-width: 3ch; }
 .fact.out b { color: var(--ok); }
 .fact.trapped b { color: var(--trapped); }
 .fact.down b { color: var(--bad); }
@@ -120,9 +123,11 @@ aside { grid-area: side; min-height: 0; overflow-y: auto; scrollbar-width: none;
 .queueCaption strong { color: var(--text); }
 .queueKey { white-space: nowrap; }
 .queueKey::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 4px; background: var(--queued); border-radius: 50%; }
-.queueMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin: 4px 0; }
+/* 2 columns: the longest value ("1247 person-s") fits on 1 line, so the panel keeps its height during a run. */
+.queueMetrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px var(--gap); margin: 4px 0; }
 .queueMetrics dt, #doorQueues details { color: var(--muted); font-size: var(--fs-small); }
-.queueMetrics dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.queueMetrics dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queueCaption strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #qWaiting { color: var(--queued); }
 #doorQueues summary { cursor: pointer; width: fit-content; }
 #doorQueues p { margin: 5px 0; }
@@ -196,7 +201,7 @@ label { display: block; color: var(--muted); font-size: var(--fs-small); }
   header select { order: 1; flex: 1 0 100%; }
   header:has(#pages:not([hidden])) h1 { display: none; }
   #pages a { min-width: 76px; padding: 0 12px; }
-  #pa { min-height: 36px; padding: 4px var(--gutter); font-size: var(--fs); line-height: 1.25; }
+  #pa { --pa-line-h: 18px; padding: 5px var(--gutter); font-size: var(--fs); }
   /* On a phone the picture gets the space: the join panel shows only when there is no picture. */
   #liveView .join { display: none; }
   #liveView.empty .none { display: flex; }
