@@ -8,7 +8,7 @@
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
   const MARK = { ms: 2500, px: 3, color: '#7cc4ff' };
-  const PHONE = { reach: 5, spread: 0.5, dot: '#ffffff', cone: 'rgba(124,196,255,.3)' };   // reach in cells, spread in radians each side
+  const PHONE = { reach: 6, spread: 0.85, dot: '#ffffff', cone: 'rgba(124,196,255,.3)' };   // reach in cells, spread in radians each side
 
   /* Words of a room name that fit a box: full name on 1 or 2 lines, else its short form.
    * Short form = the text in brackets ("Bricken Office (10)" -> "10"), else the first word. */
