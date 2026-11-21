@@ -29,9 +29,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import agent as AG
 import perception as P
 from geometry import MapInfo, VenueInfo, jpeg_aspect, load_venue
 
@@ -66,6 +67,7 @@ def phone_url() -> str | None:
 VENUE = os.getenv("VENUE", "" if os.getenv("MAP") else "malin")
 MAP = VenueInfo(load_venue(VENUE, HERE.parent / "prototype" / "layouts.js")) if VENUE else MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
+phone_frame: dict[str, dict[str, tuple[bytes, float]]] = {}  # room -> phone id -> (jpeg, time)
 events: dict[str, asyncio.Event] = {}
 cams: dict[str, dict] = {}  # per-camera working state
 workers: dict[str, asyncio.Task] = {}
@@ -120,6 +122,7 @@ def observation(cam_id: str) -> dict:
     o = {
         "cameraId": cam_id,
         "pose": c.get("pose"),
+        "phones": sorted(p for p, (_, t) in phone_frame.get(cam_id, {}).items() if time.time() - t < POSE_TTL_S),
         "poses": [{k: p[k] for k in ("x", "y", "yaw")} for _, p in sorted(c.get("poses", {}).items())
                   if time.time() - p["t"] < POSE_TTL_S],
         **({"room": MAP.cameras[cam_id]["room"]} if "room" in MAP.cameras.get(cam_id, {}) else {}),
@@ -364,6 +367,7 @@ async def post_frame(cam_id: str, request: Request):
     # More than one phone can film the same room: keep each phone's pose (phone = an id the phone made up).
     phone = request.query_params.get("phone", "")[:40] or "one"
     c.setdefault("poses", {}).pop(phone, None)
+    phone_frame.setdefault(cam_id, {})[phone] = (jpeg, now)   # each phone's own newest picture, for the Cameras view
     if c["pose"]:
         c["poses"][phone] = {**c["pose"], "t": now}
     c["stream"]["lastFrame"] = now
@@ -444,6 +448,69 @@ async def post_twin(request: Request):
     return {"ready": P.has_key(), "rooms": len(rooms)}
 
 
+def streamed(job):
+    """Run job(emit) in a thread; the response is NDJSON: progress events, then {"type": "result", ...} or {"type": "error"}."""
+    q: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    emit = lambda ev: loop.call_soon_threadsafe(q.put_nowait, ev)
+
+    async def work():
+        try:
+            emit({"type": "result", "result": await asyncio.to_thread(job, emit)})
+        except Exception as e:
+            emit({"type": "error", "text": f"{type(e).__name__}: {e}"[:300]})
+        emit(None)
+
+    async def lines():
+        task = asyncio.create_task(work())
+        while (ev := await q.get()) is not None:
+            yield json.dumps(ev) + "\n"
+        await task
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+def agent_request(request: Request, body: dict):
+    """The agent spends the API key: laptop only. Returns an error response, or None if the request can go ahead."""
+    if not is_local(request):
+        return JSONResponse({"error": "the agent answers on the organizer's laptop only"}, status_code=403)
+    if not P.has_key():
+        return JSONResponse({"error": "no API key on the server yet"}, status_code=503)
+    if not isinstance(body.get("layout", {}), dict) or len(json.dumps(body)) > 4 * LAYOUT_MAX_BYTES:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    return None
+
+
+@app.post("/agent/ask")
+async def agent_ask(request: Request):
+    """Chat with the agent. Body: {question, history: [{role, text}], layout (the page's snapshot), fireRate}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    question = str(body.get("question", "")).strip()
+    if not question or not isinstance(body.get("layout"), dict):
+        return JSONResponse({"error": "question and layout needed"}, status_code=400)
+    rate = float(body.get("fireRate") or 0.08)
+    return streamed(lambda emit: AG.ask(question, body.get("history") or [], body["layout"], rate, emit))
+
+
+@app.post("/advisor/propose")
+async def advisor_propose(request: Request):
+    """Advisor tab: changes to test. Body: {layout, summary}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    return streamed(lambda emit: AG.propose(body.get("layout") or {}, body.get("summary") or {}, emit))
+
+
+@app.post("/advisor/guide")
+async def advisor_guide(request: Request):
+    """Advisor tab: the advice guide. Body: {facts}."""
+    body = await request.json()
+    if err := agent_request(request, body):
+        return err
+    return streamed(lambda emit: AG.guide(body.get("facts") or {}, emit))
+
+
 @app.get("/layout")
 async def get_layout():
     """The presenter's layout, for a copy of the twin page opened somewhere else."""
@@ -453,11 +520,12 @@ async def get_layout():
 
 
 @app.get("/frame/{cam_id}/latest.jpg")
-async def latest_jpeg(cam_id: str):
-    """The newest frame of one camera, for the live view on the twin page."""
-    if cam_id not in latest_frame:
+async def latest_jpeg(cam_id: str, phone: str = ""):
+    """The newest frame of one camera, for the live view on the twin page. With ?phone=<id>: that phone's own newest frame."""
+    one = phone_frame.get(cam_id, {}).get(phone) if phone else latest_frame.get(cam_id)
+    if not one:
         return JSONResponse({"error": "no frame"}, status_code=404)
-    return Response(latest_frame[cam_id][0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    return Response(one[0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 CAPTURE_FILE = re.compile(r"^\d+\.jpg$")

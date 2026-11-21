@@ -39,7 +39,7 @@
   }
 
   /* What the live view needs from the server: the newest frame of a room, and how phones join. */
-  const frameUrl = room => BASE + '/frame/' + encodeURIComponent(room) + '/latest.jpg?t=' + Date.now();
+  const frameUrl = (room, phone) => BASE + '/frame/' + encodeURIComponent(room) + '/latest.jpg?t=' + Date.now() + (phone ? '&phone=' + encodeURIComponent(phone) : '');
   const qrUrl = () => BASE + '/qr.svg?t=' + Date.now();
   const info = () => fetch(BASE + '/').then(r => r.json());
 
@@ -50,5 +50,31 @@
   const captures = () => fetch(BASE + '/captures').then(r => r.json());
   const captureUrl = (room, file) => BASE + '/captures/' + encodeURIComponent(room) + '/' + encodeURIComponent(file);
 
-  window.Feed = { configure, listen, frameUrl, qrUrl, info, layout, captures, captureUrl, presenter: PRESENTER };
+  /* The server's Gemini agent (server/agent.py). The reply streams as NDJSON: onEvent gets each
+   * {type: 'step' | 'thought', text} while it works. Resolves with the result, or throws the server's error. */
+  async function streamed(path, body, onEvent) {
+    const res = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'agent service ' + res.status);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const ev = JSON.parse(buf.slice(0, nl)); buf = buf.slice(nl + 1);
+        if (ev.type === 'result') return ev.result;
+        if (ev.type === 'error') throw new Error(ev.text);
+        if (onEvent) onEvent(ev);
+      }
+    }
+    throw new Error('the agent service closed the connection');
+  }
+  const agentAsk = (body, onEvent) => streamed('/agent/ask', body, onEvent);
+  const advisorPropose = (body, onEvent) => streamed('/advisor/propose', body, onEvent);
+  const advisorGuide = (body, onEvent) => streamed('/advisor/guide', body, onEvent);
+
+  window.Feed = { configure, listen, frameUrl, qrUrl, info, layout, captures, captureUrl, presenter: PRESENTER,
+    agentAsk, advisorPropose, advisorGuide };
 })();

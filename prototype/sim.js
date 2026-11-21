@@ -4,10 +4,19 @@
   'use strict';
 
   const FLOOR = 0, WALL = 1, LOCKED = 2, DOOR = 3, EXIT = 4;
-  const ACTIVE = 0, OUT = 1, DOWN = 2;
+  const ACTIVE = 0, OUT = 1, DOWN = 2, INJURED = 3;
   const CROWD_DT = 1 / 30, SUBSTEPS = 15;
   const DT = 0.5;            // seconds per tick
   const DOSE_LIMIT = 45;     // smoke dose at which a person goes down
+  /* Crowd events (opts.crowd = true, or a 'fall' event). 1 cell holds 1 person, so crush pressure is read from the
+   * queue at an opening: people waiting per metre of its width, felt by the people near the front of the queue.
+   * Demo heuristics, not calibrated crowd physics. */
+  const CRUSH_PER_M = 16;    // queue pressure (people waiting per metre of opening) where pushing starts to hurt
+  const CRUSH_FALL = 8;      // pressure-seconds (at the threshold) before a person in the press falls
+  const CRUSH_FATAL = 24;    // pressure-seconds before a fallen person in the press is lost
+  const FRONT = 2;           // cells from the opening (either axis) that count as the front of its queue
+  const TRIP_P = 0.00006;    // chance per step to trip and fall; 4x in thick smoke
+  const GET_UP_S = 25;       // a fallen person gets up (or is helped up) after this, then walks at half speed
   /* Furniture from layout.objects (seen by a camera). These types block walking; all furniture burns faster
    * than bare floor. Chairs and plants are drawn but people walk past them. */
   const BLOCKING = { table: 1, desk: 1, sofa: 1, counter: 1, bar: 1, stage: 1, shelf: 1, screen: 1 };
@@ -122,6 +131,13 @@
       this.fireRate = opts.fireRate == null ? 0.08 : opts.fireRate;
       const seed = opts.seed || 7;
       this.randFire = mulberry32(seed * 7919 + 1);   // fire RNG is separate: same fire for every layout variant
+      this.crowd = !!opts.crowd;                     // crush at queues + random trips
+      this.randEvent = mulberry32(seed * 104729 + 5); // trips have their own RNG: fire and placement stay the same
+      this.fallen = new Uint8Array(N);               // 1 = a fallen person lies here (nobody can step on it)
+      this.falls = { crush: 0, trip: 0, event: 0 };
+      this.lostBy = { fire: 0, smoke: 0, crush: 0 };
+      this.crushAt = {};                             // opening id -> falls in its crush
+      this.fallLog = [];                             // {i, why, tick}: where and when each fall happened
       const randPlace = mulberry32(seed);
 
       this.type = new Uint8Array(N).fill(WALL);
@@ -195,7 +211,7 @@
         this.occ[i] = this.people.length;
         this.people.push({
           id: this.people.length, i, x, y, state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10),
-          queueOpening: -1, queueStreakSeconds: 0, knowsSecond: false, cueResponse: randAwareness()
+          queueOpening: -1, queueStreakSeconds: 0, knowsSecond: false, cueResponse: randAwareness(), crush: 0, fallenFor: 0, slow: false, pressOpening: -1
         });
       };
       if (grid) {
@@ -232,6 +248,7 @@
         substep: Number.isInteger(o.substep) ? o.substep : (o.tick | 0) * SUBSTEPS,
         x: o.x | 0, y: o.y | 0
       }));
+      this.events = (opts.events || []).map(e => ({...e, substep: Number.isInteger(e.substep) ? e.substep : (e.tick | 0) * SUBSTEPS}));
       this.ignitions = [];      // log of this run; feed to a new Sim to replay the same fire
       this.tick = 0;
       this.alarmTick = -1;
@@ -254,7 +271,7 @@
       if (this.crowdMode === 'continuous') {
         const crowd = root.ContinuousCrowd || (typeof require === 'function' ? require('./continuous.js') : null);
         if (!crowd) throw new Error('The continuous crowd module is missing.');
-        this.crowd = crowd.create(this, opts);
+        this.crowdPhysics = crowd.create(this, opts);
       }
     }
 
@@ -262,14 +279,14 @@
     refreshOpening(idx, init) {
       const o = this.openings[idx];
       for (const c of o.cells) {
-        this.type[c] = o.ref.locked ? LOCKED : (o.kind === 'exit' ? EXIT : DOOR);
+        this.type[c] = o.ref.locked || o.blocked ? LOCKED : (o.kind === 'exit' ? EXIT : DOOR);
         this.tagOf[c] = idx;
       }
-      if (!init) { this.computeDist(); this.crowd?.refresh(); }
+      if (!init) { this.computeDist(); this.crowdPhysics?.refresh(); }
     }
 
     solid(i) { const t = this.type[i]; return t === WALL || t === LOCKED; }       // blocks fire, smoke, people
-    passable(i) { return !this.solid(i) && !this.fire[i] && !this.furn[i] && (!this.walkable || this.walkable[i] !== 0); }   // a person can stand here
+    passable(i) { return !this.solid(i) && !this.fire[i] && !this.furn[i] && (this.crowdMode === 'continuous' || !this.fallen[i]) && (!this.walkable || this.walkable[i] !== 0); }   // a person can stand here
     canStep(e) { return this.passable(e.j) && (e.a < 0 || (this.passable(e.a) && this.passable(e.b))); }
 
     ignite(x, y) {
@@ -283,6 +300,48 @@
       return true;
     }
 
+    /* An event from opts.events, on its tick. */
+    runEvent(e) {
+      if (e.type === 'alarm') { if (this.alarmTick < 0) { this.alarmTick = this.tick; this.alarmSeconds = this.seconds; } return; }
+      if (e.type === 'block') {
+        const k = this.openings.findIndex(o => o.ref.id === e.id);
+        if (k >= 0 && !this.openings[k].blocked) { this.openings[k].blocked = true; this.refreshOpening(k, true); this.dirty = true; }
+        return;
+      }
+      if (e.type === 'fall') {
+        let best = null, bestD = Infinity;
+        for (const p of this.people) {
+          if (p.state !== ACTIVE) continue;
+          const d = (p.i % this.W - e.x) ** 2 + (((p.i / this.W) | 0) - e.y) ** 2;
+          if (d < bestD) { bestD = d; best = p; }
+        }
+        if (best) this.fall(best, 'event');
+      }
+    }
+
+    fall(p, why) {
+      p.state = INJURED; p.vx = p.vy = 0; p.fallenFor = 0; p.queueOpening = -1;
+      this.fallen[p.i] = 1; this.falls[why]++; this.dirty = true; this.lastProgress = this.tick;
+      this.fallLog.push({ i: p.i, why, tick: this.tick });
+      if (why === 'crush' && p.pressOpening >= 0) {
+        const id = this.openings[p.pressOpening].ref.id;
+        this.crushAt[id] = (this.crushAt[id] || 0) + 1;
+      }
+    }
+
+    getUp(p) { p.state = ACTIVE; p.slow = true; p.crush = 0; p.pressOpening = -1; this.fallen[p.i] = 0; this.dirty = true; }
+
+    nearOpening(c, k) {
+      const x = c % this.W, y = (c / this.W) | 0;
+      return this.openings[k].cells.some(o => Math.max(Math.abs(o % this.W - x), Math.abs(((o / this.W) | 0) - y)) <= FRONT);
+    }
+
+    /* Queue pressure at an opening last tick: people waiting per metre of its width. */
+    pressure(k) {
+      const o = this.openings[k];
+      return (this.doorQueues[k].prevWaiting || 0) / Math.max(o.ref.w, o.ref.h);
+    }
+
     // Compatibility with existing headless callers: run to the next hazard boundary.
     step() {
       const end = (Math.floor(this.substep / SUBSTEPS) + 1) * SUBSTEPS;
@@ -292,6 +351,7 @@
     advance() {
       if (this.done) return;
       for (const s of this.scheduled) if (s.substep === this.substep) this.ignite(s.x, s.y);
+      for (const e of this.events) if (e.substep === this.substep) this.runEvent(e);
       this.substep++;
       this.seconds = this.substep * CROWD_DT;
       this.tick = Math.floor(this.substep / SUBSTEPS);
@@ -309,15 +369,30 @@
         if (boundary) { this.deliverCue(); this.movePeople(); this.checkEnd(); }
       } else {
         this.deliverCue();
+        if (boundary) {
+          for (const q of this.doorQueues) q.prevWaiting = q.waiting;
+          this.moveFallen();
+          if (this.crowd) for (const p of this.people) {
+            if (p.state !== ACTIVE || this.seconds - this.alarmSeconds < p.delay * DT) continue;
+            const k = p.queueOpening, ratio = k >= 0 ? this.pressure(k) / CRUSH_PER_M : 0;
+            if (ratio >= 1 && this.nearOpening(p.i, k)) {
+              p.pressOpening = k; p.crush += ratio * DT;
+              if (p.crush >= CRUSH_FALL) this.fall(p, 'crush');
+            } else {
+              p.crush = Math.max(0, p.crush - DT);
+              if (Math.hypot(p.vx, p.vy) > .1 && this.randEvent() < TRIP_P * (this.smoke[p.i] > .4 ? 4 : 1)) { p.pressOpening = -1; this.fall(p, 'trip'); }
+            }
+          }
+        }
         // Preserve the previous dose scale: 45 index-ticks = 22.5 index-seconds.
         for (const p of this.people) if (p.state === ACTIVE) {
           p.dose += this.smoke[p.i] * CROWD_DT / DT;
           if (this.fire[p.i] || p.dose > DOSE_LIMIT) this.leave(p, DOWN);
         }
-        this.crowd.step(CROWD_DT);
+        this.crowdPhysics.step(CROWD_DT);
         for (const p of this.people) if (p.state === ACTIVE && this.fire[p.i]) this.leave(p, DOWN);
         if (boundary) this.checkEnd();
-        if (this.people.every(p => p.state !== ACTIVE)
+        if (this.people.every(p => p.state !== ACTIVE && p.state !== INJURED)
           || (Number.isFinite(this.horizonSeconds) && this.seconds - this.alarmSeconds >= this.horizonSeconds - 1e-9)) this.done = true;
       }
     }
@@ -420,11 +495,13 @@
     /* With a route: go down the distance field. Without: go to cleaner air. */
     score(p, i) { return this.trapped(p) ? this.smoke[i] + this.nearFire[i] : this.distanceFor(p)[i]; }
 
-    leave(p, state, openingIndex) {
-      if (p.state !== ACTIVE) return;
+    leave(p, state, detail) {
+      if (p.state !== ACTIVE && p.state !== INJURED) return;
+      if (p.state === INJURED) { this.fallen[p.i] = 0; this.dirty = true; }
+      const openingIndex = typeof detail === 'number' ? detail : undefined;
       p.vx = p.vy = 0;
       p.state = state; this.occ[p.i] = -1; this.lastProgress = this.tick;
-      if (state === DOWN) { this.down++; return; }
+      if (state === DOWN) { this.down++; this.lostBy[typeof detail === 'string' ? detail : this.fire[p.i] ? 'fire' : 'smoke']++; return; }
       const opening = this.openings[openingIndex ?? this.tagOf[p.i]];
       const id = opening.ref.id;
       this.exitUse[id] = (this.exitUse[id] || 0) + 1;
@@ -461,16 +538,33 @@
       }));
     }
 
+    /* Fallen people: they breathe smoke, can be crushed further, and get up after GET_UP_S. */
+    moveFallen() {
+      for (const p of this.people) {
+        if (p.state !== INJURED) continue;
+        const c = p.i;
+        p.dose += this.smoke[c]; p.fallenFor += DT;
+        if (p.pressOpening >= 0) {
+          const ratio = this.pressure(p.pressOpening) / CRUSH_PER_M;
+          if (ratio >= 1) p.crush += ratio * DT;
+        }
+        if (this.fire[c] || p.dose > DOSE_LIMIT || p.crush > CRUSH_FATAL) {
+          this.leave(p, DOWN, this.fire[c] ? 'fire' : p.crush > CRUSH_FATAL ? 'crush' : 'smoke');
+        } else if (p.fallenFor >= GET_UP_S) this.getUp(p);
+      }
+    }
+
     movePeople() {
       const { type, fire, smoke, occ, adj } = this;
-      for (const q of this.doorQueues) q.waiting = 0;
+      for (const q of this.doorQueues) { q.prevWaiting = q.waiting; q.waiting = 0; }
+      this.moveFallen();
       const order = this.people.filter(p => p.state === ACTIVE).sort((a, b) => this.distanceFor(a)[a.i] - this.distanceFor(b)[b.i]);
       for (const p of order) {
         const dist = this.distanceFor(p);
         const c = p.i, previousQueue = p.queueOpening;
         p.queueOpening = -1;
         p.dose += smoke[c];
-        if (fire[c] || p.dose > DOSE_LIMIT) { this.leave(p, DOWN); continue; }
+        if (fire[c] || p.dose > DOSE_LIMIT) { this.leave(p, DOWN, fire[c] ? 'fire' : 'smoke'); continue; }
         if (type[c] === EXIT) { this.leave(p, OUT); continue; }
         if (this.tick - this.alarmTick < p.delay || --p.cool > 0) continue;
         let best = -1, bestV = this.score(p, c) - (this.trapped(p) ? 0.02 : 0);
@@ -496,30 +590,42 @@
               q.waitSeconds += DT;
               q.maxWaitSeconds = Math.max(q.maxWaitSeconds, p.queueStreakSeconds);
               q.smokeSeconds += smoke[c] * DT;
+              // Near the front of a long queue the crowd behind presses. Long enough and the person falls.
+              const ratio = this.pressure(p.queueOpening) / CRUSH_PER_M;
+              if (this.crowd && ratio >= 1 && this.nearOpening(c, p.queueOpening)) {
+                p.pressOpening = p.queueOpening; p.crush += ratio * DT;
+                if (p.crush >= CRUSH_FALL) { this.fall(p, 'crush'); continue; }
+              } else p.crush = Math.max(0, p.crush - DT);
             }
           }
           p.cool = 1;
           continue;
         }
+        p.crush = Math.max(0, p.crush - DT);
+        if (this.crowd && this.randEvent() < TRIP_P * (smoke[c] > 0.4 ? 4 : 1)) { p.pressOpening = -1; this.fall(p, 'trip'); continue; }
         if (!this.trapped(p)) this.lastProgress = this.tick;
         occ[c] = -1; occ[best] = this.people.indexOf(p); p.i = best;
-        p.cool = Math.max(1, Math.round(this.cellSize * (smoke[best] > 0.4 ? 4 : 2)));                    // smoke halves walking speed
+        p.cool = Math.max(1, Math.round(this.cellSize * (smoke[best] > 0.4 ? 4 : 2) * (p.slow ? 2 : 1)));   // smoke halves walking speed; so does a fall
       }
     }
 
     counts() {
-      let active = 0, trapped = 0;
-      for (const p of this.people) if (p.state === ACTIVE) { active++; if (this.trapped(p)) trapped++; }
-      return { active, trapped };
+      let active = 0, trapped = 0, injured = 0;
+      for (const p of this.people) {
+        if (p.state === ACTIVE) { active++; if (this.trapped(p)) trapped++; }
+        else if (p.state === INJURED) injured++;
+      }
+      return { active, trapped, injured };
     }
 
     checkEnd() {
-      const { active, trapped } = this.counts();
+      const { active, trapped, injured } = this.counts();
       if (Number.isFinite(this.horizonSeconds) && this.alarmTick >= 0) {
-        this.done = active === 0 || this.seconds - this.alarmSeconds >= this.horizonSeconds - 1e-9;
+        this.done = active + injured === 0 || this.seconds - this.alarmSeconds >= this.horizonSeconds - 1e-9;
         return;
       }
-      if (active === 0) this.done = true;
+      if (active + injured === 0) this.done = true;
+      else if (injured) this.stuck = 0;   // a fallen person can get up and free a blocked doorway
       else if (this.awareness && !this.cueDelivered && Number.isFinite(this.awareness.cueSeconds)
         && this.people.some(p => p.state === ACTIVE && p.cueResponse < this.awareness.reception)) this.stuck = 0;
       else if (trapped === active) { if (++this.stuck > 60) this.done = true; } else this.stuck = 0;
@@ -528,9 +634,9 @@
 
     /* `lost` is the legacy not-evacuated total (down + still inside), not a fatality count. */
     stats() {
-      const { active, trapped } = this.counts();
-      return { total: this.people.length, out: this.out, down: this.down, trapped, active,
-               lost: this.down + active, ticks: this.tick,
+      const { active, trapped, injured } = this.counts();
+      return { total: this.people.length, out: this.out, down: this.down, trapped, active, injured,
+               lost: this.down + active + injured, falls: {...this.falls}, lostBy: {...this.lostBy}, crushAt: {...this.crushAt}, ticks: this.tick,
                seconds: Math.round(this.seconds), elapsedSeconds: this.seconds, lastOutSeconds: this.lastOutSeconds,
                requestedPeople: this.requestedPeople, unplaced: this.unplaced, crowdMode: this.crowdMode, modelVersion: this.modelVersion,
                exitUse: Object.assign({}, this.exitUse) };
@@ -557,7 +663,8 @@
   }
 
   /* Returns a NEW layout with the action applied, or null if the action is invalid.
-   * Actions: {action:'unlock', id} | {action:'unlock_all'} | {action:'add_exit', x, y} */
+   * Actions: {action:'unlock', id} | {action:'unlock_all'} | {action:'add_exit', x, y}
+   *          | {action:'cap_room', room, people} (an occupancy limit) | {action:'widen', id} (1 cell wider) */
   function applyAction(layout, a) {
     if (!a || typeof a !== 'object') return null;
     const L = clone(layout), locked = openingsOf(L).filter(o => o.locked);
@@ -578,6 +685,28 @@
       if (s.type[i] !== WALL || !through) return null;
       L.exits.push({ id: 'N' + (L.exits.length + 1), name: 'New exit', x, y, w: 1, h: 1, locked: false });
       return L;
+    }
+    if (a.action === 'cap_room') {
+      const r = L.rooms.find(room => room.name.toLowerCase() === String(a.room || '').toLowerCase());
+      const cap = Math.round(+a.people);
+      if (!r || !Number.isFinite(cap) || cap < 0 || cap >= r.people) return null;
+      r.people = cap;
+      return L;
+    }
+    if (a.action === 'widen') {
+      const o = openingsOf(L).find(e => e.id.toLowerCase() === String(a.id || '').toLowerCase());
+      if (!o) return null;
+      const s = new Sim(L), W = L.width, H = L.height, along = o.w >= o.h;   // it grows along its wall
+      const sides = (x, y) => along ? [[x, y - 1], [x, y + 1]] : [[x - 1, y], [x + 1, y]];
+      const sig = (x, y) => sides(x, y).map(([cx, cy]) => inRect({ x: cx, y: cy, w: 1, h: 1 }, W, H)
+        ? (s.type[cy * W + cx] === WALL ? 'w' : 'f') + s.covered[cy * W + cx] : 'out').join();
+      const want = sig(o.x, o.y);
+      for (const [x, y] of along ? [[o.x + o.w, o.y], [o.x - 1, o.y]] : [[o.x, o.y + o.h], [o.x, o.y - 1]]) {
+        if (!inRect({ x, y, w: 1, h: 1 }, W, H) || s.type[y * W + x] !== WALL || sig(x, y) !== want) continue;
+        if (along) { o.x = Math.min(o.x, x); o.w++; } else { o.y = Math.min(o.y, y); o.h++; }
+        return L;
+      }
+      return null;
     }
     return null;
   }
@@ -612,10 +741,12 @@
     return a.action === 'unlock' ? 'Unlock ' + String(a.id).toUpperCase()
       : a.action === 'unlock_all' ? 'Unlock all'
       : a.action === 'add_exit' ? 'New exit at (' + Math.round(+a.x) + ',' + Math.round(+a.y) + ')'
+      : a.action === 'cap_room' ? 'Limit ' + a.room + ' to ' + Math.round(+a.people)
+      : a.action === 'widen' ? 'Widen ' + String(a.id).toUpperCase()
       : String(a.action);
   }
 
-  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, CROWD_DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
+  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, CROWD_DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN, INJURED };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireSim = api;
 })(typeof window !== 'undefined' ? window : globalThis);

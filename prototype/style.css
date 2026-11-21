@@ -119,6 +119,50 @@ dialog{width:min(520px,92vw);max-height:88dvh;overflow:auto;background:var(--pan
 #liveView.empty .qr { width: var(--qr-big); height: var(--qr-big); }
 
 
+/* Advisor tab: replaces the map, facts, side panel and dock while it is open. */
+#advisor { display: none; }
+body.advising > .workspace, body.advising > .sidebar { display: none; }
+body.advising #advisor { grid-column: 1 / -1; display: grid; gap: var(--gutter); min-height: 0; overflow-y: auto; grid-template-columns: minmax(0, 1fr); }
+#advisorTab[aria-pressed="true"] { border-color: var(--focus); background-color: var(--control-hover); font-weight: 600; }
+.advCol { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; padding: var(--gutter); border-radius: var(--radius); background-color: var(--panel); border: 1px solid var(--line); }
+.advHead { display: flex; align-items: center; gap: var(--gap); }
+.advHead h2, .advHead h3 { flex: 1; }
+.advHead select { width: auto; flex: none; }
+#advisor h3 { margin: 6px 0 0; font-size: var(--fs); }
+#advisor h4 { margin: 10px 0 4px; font-size: var(--fs); color: var(--muted); font-weight: 600; }
+.advNote, #advStatus { margin: 0; color: var(--muted); font-size: var(--fs-small); font-weight: 400; }
+#advProgress { width: 100%; height: 6px; accent-color: var(--accent); }
+#advMapWrap { height: 34dvh; min-height: 180px; flex: none; display: flex; align-items: center; justify-content: center; }
+#advMap { cursor: default; }
+.key { margin-left: 10px; font-size: var(--fs-small); color: var(--muted); font-weight: 400; }
+.key::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 2px; }
+.key.lost::before { background: #ff4f4f; }
+.key.falls::before { background: #ffb020; }
+#advThoughts { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 160px; max-height: 40dvh; font-size: var(--fs-small); }
+#advThoughts li { padding: 5px 0; border-bottom: 1px solid var(--line); white-space: pre-line; }
+#advThoughts li b { display: inline-block; min-width: 9ch; margin-right: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+#advThoughts li.gemini b { color: #c4a0ff; }
+#advThoughts li.sim b { color: var(--ok); }
+#advThoughts li.sim { color: var(--muted); }
+#advThoughts li strong { margin-right: 6px; }
+#advGuide .headline { margin: 4px 0; font-size: 15px; font-weight: 600; line-height: 1.35; }
+#advGuide ol, #advGuide ul { margin: 0; padding-left: 20px; }
+#advGuide li { margin: 4px 0; }
+#advGuide td { white-space: normal; text-align: left; overflow-wrap: break-word; }
+#advisor td, #advisor th { overflow-wrap: break-word; }
+#advGuide .evidence { color: var(--muted); font-size: var(--fs-small); }
+#advGuide .limits, #advGuide .by { color: var(--muted); font-size: var(--fs-small); margin: 6px 0 0; }
+.prio { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: var(--control-hover); }
+.prio.high { background: #6b1d1d; color: #ffd0cc; }
+.prio.medium { background: #5a4310; color: #ffe2a8; }
+td.good { color: var(--ok); font-weight: 700; }
+#advisor table.scen tbody tr { cursor: pointer; }
+#advisor table.scen td:nth-child(2) { white-space: normal; text-align: left; }
+@media (min-width: 820px) {
+  body.advising #advisor { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
+  .advCol { overflow-y: auto; min-height: 0; }
+}
+
 @media(max-width:1100px){body{grid-template-columns:minmax(0,1fr) 310px;padding:0 12px 12px;gap:0 10px}.connection{display:none}.mapbar{padding:16px 14px 10px}.mapbar h2{font-size:18px}.maptools{padding:0 14px 10px;gap:10px}#placementNote{width:100%;order:3}.playback{padding:12px}.speed-control{margin-left:0}}
 @media(max-width:760px){html,body{height:auto;min-height:100dvh;overflow:auto}body{display:flex;flex-direction:column;padding:12px;gap:12px}.topbar{flex-wrap:wrap;gap:10px}.brand{flex:1}#preset{order:3;width:100%;max-width:none;margin:0}.workspace{min-height:640px;grid-template-rows:auto auto 300px auto}.sidebar{min-height:400px;max-height:700px}.mapbar{flex-wrap:wrap}#stage{height:300px}#hint3d{display:none}.maplegend{font-size:9px;gap:7px;left:10px;bottom:8px}.stage-label{left:10px;top:10px}.playback-heading{flex-direction:column;gap:4px}#snapshotLabel{text-align:left}.fact{gap:4px;flex-direction:column}.fact b{font-size:19px}.sidebar-foot{flex-shrink:0}.side-panel{max-height:500px}.assistant-intro{padding-top:0}.large-spark{display:none}.composer{margin-top:18px}#liveView .join{display:none}#liveView.empty .none{display:flex}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
@@ -145,3 +189,15 @@ select option{font-family:Inter,system-ui,sans-serif;color:#edf2e6;background:#2
 #presetTrigger[aria-expanded=true] .picker-chevron{transform:rotate(225deg)}
 
 .queueMetrics dd{font-size:16px;white-space:nowrap;letter-spacing:-.3px}
+/* Cameras view: the pictures get the room. Below them, one compact row: saved frames (left), how to join (right). */
+#stage[data-view="live"] .stage-label { display: none; }
+#liveView { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; padding: var(--gap); }
+#liveView .tiles, #liveView .none { grid-column: 1 / -1; }
+#liveView .saved { grid-column: 1; grid-row: 2; }
+#liveView .saved[hidden] + .join { grid-column: 1 / -1; }
+#liveView .join { grid-column: 2; grid-row: 2; align-self: end; max-width: 300px; --qr: 64px; }
+#liveView .join span:not(.link) { display: none; }
+#liveView .join .link { font-size: 10px; overflow-wrap: anywhere; }
+#liveView .strip { --thumb: 84px; --thumb-h: 44px; }
+#liveView.empty .join { grid-column: 1 / -1; grid-row: 1 / -1; max-width: none; align-self: stretch; --qr: var(--qr-big); }
+#liveView.empty .join span:not(.link) { display: inline; }

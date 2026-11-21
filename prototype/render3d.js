@@ -10,7 +10,7 @@
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
     sky: 0x1c2420, floor: 0xb5b5a1, wall: 0xe0decb, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
-    route: 0x529e9a, queued: 0xe99f60, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
+    route: 0x529e9a, queued: 0xe99f60, trapped: 0xff4fd8, down: 0x8a2626, fallen: 0xffb020, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
   };
   /* Furniture from layout.objects: [height in m, share of the cell that the voxel fills]. */
   const OBJECT = {
@@ -217,9 +217,9 @@
       let np=0,nl=0,nd=0;
       sim.people.forEach((p,index) => {
         if(p.state===F.OUT)return;
-        const track=visual.tracks[index],isDown=p.state===F.DOWN;
+        const track=visual.tracks[index],isDown=p.state===F.DOWN || p.state===F.INJURED;
         const skin=[0xf1c39c,0xc58d67,0x8f5b40,0xe0ad87][index%4];
-        const color=isDown?COLOR.down:p.queueOpening>=0?COLOR.queued:sim.trapped(p)?COLOR.trapped:shirts[index%shirts.length];
+        const color=p.state===F.INJURED?COLOR.fallen:isDown?COLOR.down:p.queueOpening>=0?COLOR.queued:sim.trapped(p)?COLOR.trapped:shirts[index%shirts.length];
         const lean=track.alert && track.moving ? .14 : 0;
         bodyEuler.set(lean,track.heading + (track.waiting?track.sway:0),0);
         rotation.setFromEuler(bodyEuler);

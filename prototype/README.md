@@ -44,6 +44,20 @@ Pick a door or exit in the queue panel to see its current and peak queue, distin
 
 Each waiting person adds the duration of each crowd substep to the total, in person-seconds. Waiting smoke exposure sums the local smoke index (0–1) multiplied by those seconds. For example, four people waiting for two seconds at an index of 0.5 contribute eight person-seconds and four smoke-seconds. Reset or replay starts the counters fresh.
 
+### Advisor tab (analysis agent)
+
+**Advisor** in the header opens a tab that analyses the twin on screen. **Run analysis**:
+
+1. Runs 12, 24 or 48 scenarios headless (about 2–5 s): fires started in rooms weighted by floor area, a fire plus a person falling at a doorway, an evacuation with no fire (false alarm, threat), and an evacuation with one exit blocked. Crowd crush and falls are on in every run.
+2. Summarises what went wrong: losses by cause (fire, smoke, crush), the busiest openings, the costliest fire starts, the worst scenarios. The **risk map** shows where people were lost (red) and where they fell (amber) over all runs.
+3. Picks changes to test: search (unlock each locked exit, widen the 2 busiest openings, cap the room whose fires cost the most) plus up to 4 from the fast model (Hydrogen). New actions: `widen` (an opening 1 m wider) and `cap_room` (an occupancy limit).
+4. Runs every scenario again with each change, so each result is a measured difference on the same scenarios (mean lost per run, crush falls, runs better / worse).
+5. The reasoning model (Neon) writes the **advice guide** from those numbers: the most prevalent hazards, what staff do when each happens, prevention ranked by measured effect, what to watch for. It is told never to recommend a change that tested worse. Without a key, a template guide is built from the same numbers.
+
+**Agent thoughts** shows each step: the loop's own steps (`Agent`), each measured result (`Sim`) and the models' thought summaries as they stream. Click a scenario row to replay it in 2D / 3D. **Copy** puts the guide on the clipboard as Markdown. Timing measured on the Malin (Gemini) preset with 24 scenarios: runs + tests about 8 s, Hydrogen proposals about 6 s, Neon guide about 75 s (its thoughts stream meanwhile).
+
+**Crowd model** (`sim.js`, demo heuristics, not calibrated): a cell holds one person, so crush pressure comes from the queue at an opening, people waiting per metre of its width. Above 16 per metre, people within 2 cells of the opening build up pressure; at 8 pressure-seconds they fall. A fallen person (amber) blocks their cell, breathes smoke, is lost if the press continues (24 pressure-seconds), and otherwise gets up after 25 s and walks at half speed. Random trips (more likely in thick smoke) use their own RNG, so fire and placement stay matched. Timed events: `fall` (the person nearest a cell falls), `block` (an opening becomes unusable), `alarm` (evacuation without fire). Setup → "Crowd crush and falls in the twin" turns the crowd model on for ordinary runs too; it is off by default, so existing fire-only results are unchanged.
+
 Layouts (`layouts.js`):
 
 - **The Malin Chelsea (approx.)**: the hackathon venue, traced by hand from the public floor plan. Street doors (7th Ave, 26th St) follow the plan. The 2 locked exits (X1, X2) and all head counts are assumptions for the demo.
@@ -92,3 +106,7 @@ TwinAssistant.connect({
 Reply shape: `{text: string, openingId?: string, suggestions?: [{title, detail, openingId?}]}`. `openingId` must match this prototype's current door/exit ID (for example E1); Show opening selects the queue metrics and focuses that opening in 3D. `TwinAssistant.receive(reply)` renders pushed findings. `connect(null)` disconnects and disables chat. Loading a layout clears old messages and ignores any pending answer. The adapter does not apply fixes, start simulations, or implement background watch; the agent owner still needs to connect world/snapshot IDs and tool results to the app.
 
 Verify in the browser: load the default 3D venue → Simulate fire → click floor → inspect Simulation queues → Pause/Play/Replay → Compare exit awareness → Return to venue → switch 2D/Cameras → open Settings. Check desktop and narrow layouts. Watch a narrow doorway and a corner in both views: bodies should turn smoothly, stay inside walkable space and queue without snapping to tile centers. Pause must freeze movement and effects; replay must reproduce the same crowd. Inspect both slow and fast playback, and verify an exit-awareness cue changes knowledge without changing initial placement or the scheduled fire. Camera and model-service actions require their respective services and credentials.
+
+### Integration with timed scenarios
+
+The Advisor, floor-plan upload and live-camera view from `main` remain available. Timed alarms, blocked openings and falls execute once at their recorded substep. With the optional crowd-events setting, the existing queue-pressure/trip heuristics run at the original 0.5-second cadence; fallen people remain stationary collision bodies, can recover after the existing delay, and then walk more slowly. These inherited injury rules are illustrative and are separate from the continuous density/contact visualization. Advisor replay selects the same movement model as its analyzed result.

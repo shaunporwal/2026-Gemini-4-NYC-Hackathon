@@ -5,7 +5,9 @@ headless, on a snapshot of the live world, and it watches in the background and 
 
 > Status: **planned**. The closest existing pieces on `main`: `sim.run()` (headless, works in Node) and the
 > prototype's "Find fix" (Gemini proposes changes and the simulator scores them, called from the browser).
-> No agent, chat, sweep, highlight or alert exists yet.
+> The prototype's **Advisor tab** (`prototype/advisor.js`, `analysis.js`; DECISIONS C10) now does a mixed sweep,
+> tests changes on the same scenarios and has Gemini write an advice guide, in the browser. No chat, map highlight
+> or background alert exists yet.
 
 ## What it does
 
@@ -66,3 +68,8 @@ server-side. The viewer talks to it for the chat panel, highlights and alerts. D
 - Alert threshold: an absolute number of lives, a change since the last check, or both?
 - Sweep design: which locations count as candidates (every room, a coarse grid, hotspots by density)?
 - Chat only, or voice too?
+
+## Shopify (Shop MCP)
+Only when the organizer names Shopify in a message, the agent can search live products from Shopify merchants, and,
+if the message also asks to buy, open one real checkout per merchant and hand back its link; the organizer pays on
+the merchant's page. Any other message runs the agent exactly as before. Details: [server/SHOPIFY.md](../server/SHOPIFY.md).

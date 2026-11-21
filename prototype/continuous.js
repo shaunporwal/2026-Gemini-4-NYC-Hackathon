@@ -66,7 +66,7 @@
     }
     function buildHash() {
       hash=new Map();
-      for(const p of people)if(p.state===F.ACTIVE) {
+      for(const p of people)if(p.state===F.ACTIVE || p.state===F.INJURED) {
         const key=Math.floor(p.x/bucketSize)+','+Math.floor(p.y/bucketSize);
         if(!hash.has(key))hash.set(key,[]);hash.get(key).push(p);
       }
@@ -107,7 +107,7 @@
     });
     // Populate the prevention view without moving anyone or advancing the simulation.
     buildHash();
-    for(const p of people)if(p.state===F.ACTIVE) {
+    for(const p of people)if(p.state===F.ACTIVE || p.state===F.INJURED) {
       let count=1;
       neighbors(p,1/scale,q=>{
         const d=Math.hypot(p.x-q.x,p.y-q.y),gap=d-p.radius-q.radius;
@@ -155,7 +155,7 @@
         p._ready=now-(sim.alarmSeconds>=0?sim.alarmSeconds:sim.alarmTick*.5)>=p.delay*.5;
         if(frame%6===1||p._planTick!==sim.tick||Math.hypot(p._targetX-p.x,p._targetY-p.y)<.3/scale)plan(p);
         const dx=p._targetX-p.x,dy=p._targetY-p.y,length=Math.hypot(dx,dy);
-        let speed=p._ready?p.preferredSpeed*(sim.smoke[p.i]>.4?.5:1):0;
+        let speed=p._ready?p.preferredSpeed*(sim.smoke[p.i]>.4?.5:1)*(p.slow?.5:1):0;
         if(length<.03/scale)speed=0;
         p._desiredX=length>1e-8?dx/length*speed:0;p._desiredY=length>1e-8?dy/length*speed:0;
         let ax=(p._desiredX-p.vx)/.3,ay=(p._desiredY-p.vy)/.3;
@@ -201,16 +201,17 @@
         let largestOverlap=0;
         const order=iteration%2?active.slice().reverse():active;
         for(const p of order)neighbors(p,2*radius+.02/scale,q=>{
-          if(q.id<=p.id)return;
+          if(q.state===F.ACTIVE && q.id<=p.id)return;
           let dx=q.x-p.x,dy=q.y-p.y,d=Math.hypot(dx,dy),minimum=p.radius+q.radius;
           if(d>=minimum)return;
           largestOverlap=Math.max(largestOverlap,minimum-d);
           if(d<1e-8){const angle=(p.id*1.7+q.id*.3)%6.283;dx=Math.cos(angle);dy=Math.sin(angle);d=1;}
-          const shift=(minimum-Math.hypot(q.x-p.x,q.y-p.y)+epsilon)*.5;
+          const fixed=q.state===F.INJURED;
+          const shift=(minimum-Math.hypot(q.x-p.x,q.y-p.y)+epsilon)*(fixed?1:.5);
           const nx=dx/d,ny=dy/d;
           // Constrain each contact correction along its own segment. Restoring one
           // person only after solving the crowd would create overlap behind them.
-          const a=sweep(p,p.x-nx*shift,p.y-ny*shift),b=sweep(q,q.x+nx*shift,q.y+ny*shift);
+          const a=sweep(p,p.x-nx*shift,p.y-ny*shift),b=fixed?{x:q.x,y:q.y}:sweep(q,q.x+nx*shift,q.y+ny*shift);
           p.x=a.x;p.y=a.y;q.x=b.x;q.y=b.y;
         });
         // Loose crowds finish quickly; a doorway jam gets the extra constraint passes.
