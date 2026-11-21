@@ -1,88 +1,161 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Twin camera</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fire Twin camera</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; }
-  video { width: 100%; max-height: 65vh; background: #000; display: block; }
-  #s { padding: 12px; font-size: 17px; line-height: 1.4; }
-  button { font-size: 20px; padding: 12px 22px; margin: 12px; border-radius: 10px; border: 0; }
-  label { margin: 12px; font-size: 17px; }
-  a { color: #8cf; display: block; padding: 8px 12px; font-size: 18px; }
-  .ok { color: #7f7; } .bad { color: #f77; }
+  /* Phone first, dark only. Every color and size is a token. */
+  :root {
+    color-scheme: dark;
+    --bg: #0c0f14; --panel: #11151c; --control: #1b212c; --line: #323b4a; --text: #e6e9ee; --muted: #9aa4b2;
+    --accent: #2b6cb0; --ok: #4ade80; --bad: #ff6b61; --video: #000;
+    --gutter: 12px; --gap: 8px; --tap: 48px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100dvh; margin: 0; overflow: hidden; }
+  body { display: flex; flex-direction: column; gap: var(--gap); padding: var(--gutter); padding-bottom: max(var(--gutter), env(safe-area-inset-bottom));
+         background-color: var(--bg); color: var(--text); font: var(--fs)/1.35 system-ui, -apple-system, sans-serif; overflow-wrap: anywhere; }
+  header { display: flex; align-items: center; gap: var(--gap); min-height: var(--tap); }
+  #change { max-width: 55%; text-align: left; }
+  h1 { flex: 1; margin: 0; font-size: var(--fs-title); }
+  h1 small { display: block; color: var(--muted); font-size: var(--fs-small); font-weight: 400; }
+  button, .file { min-height: var(--tap); padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--line);
+                  background-color: var(--control); color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; }
+  button.primary { background-color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button:active, .file:active { transform: translateY(1px); }
+  [hidden] { display: none !important; }
+
+  /* Step 1: pick the room. One bordered list, full-width rows. The list is the one scrolling region. */
+  #pick { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
+  #rooms { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--panel); }
+  #rooms button { width: 100%; justify-content: flex-start; border: 0; border-radius: 0; background-color: transparent; text-align: left; }
+  #rooms button + button { border-top: 1px solid var(--line); }
+
+  /* Step 2: the camera. */
+  #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
+  #view { flex: 1; min-height: 0; position: relative; border-radius: var(--radius); overflow: hidden; background-color: var(--video); }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--gutter); text-align: center; color: var(--muted); }
+  /* Facts: one key-value row, not tiles. */
+  #facts { display: flex; justify-content: space-between; gap: var(--gap); padding: 0 2px; }
+  #facts div { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  #facts b { font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
+  #facts span { color: var(--muted); font-size: var(--fs-small); }
+  #status { min-height: 20px; color: var(--muted); font-size: var(--fs-small); text-align: center; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .row { display: flex; gap: var(--gap); }
+  .row > * { flex: 1 1 0; min-width: 0; }
+  .file input { display: none; }
+  .switch { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); padding: 0 var(--gutter);
+            border: 1px solid var(--line); border-radius: var(--radius); }
+  .switch input { width: 22px; height: 22px; accent-color: var(--accent); }
 </style>
 </head>
 <body>
-<video id="v" autoplay playsinline muted></video>
-<button id="b">Start camera</button>
-<label><input type="checkbox" id="mic" checked> Microphone</label>
-<label id="shot" style="display:block">One photo (works without HTTPS): <input type="file" id="photo" accept="image/*" capture="environment"></label>
-<div id="s">Usage: /camera?id=&lt;cameraId from the map&gt;&amp;ms=1000&amp;w=640</div>
-<div id="list"></div>
-<canvas id="c" style="display:none"></canvas>
+<header>
+  <h1>Fire Twin camera<small id="where">Pick the room you are in</small></h1>
+  <button id="change" hidden></button>
+</header>
+
+<section id="pick">
+  <div id="rooms"></div>
+</section>
+
+<section id="cam" hidden>
+  <div id="view"><video id="v" autoplay playsinline muted></video><div id="note">Starting the camera…</div></div>
+  <div id="facts">
+    <div><span>People</span><b id="fPeople">–</b></div>
+    <div><span>Fire</span><b id="fHazard">–</b></div>
+    <div><span>Sound</span><b id="fSound">–</b></div>
+  </div>
+  <div id="status"></div>
+  <label class="switch"><span>Send microphone sound</span><input type="checkbox" id="mic" checked></label>
+  <div class="row">
+    <button id="b" class="primary">Start camera</button>
+    <label class="file">One photo<input type="file" id="photo" accept="image/*" capture="environment"></label>
+  </div>
+</section>
+
+<canvas id="c" hidden></canvas>
 <script>
 const q = new URLSearchParams(location.search);
-const cam = q.get('id');
 const intervalMs = +(q.get('ms') || 1000);   // send a frame every N ms
 const width = +(q.get('w') || 640);          // downscale before upload
 const clipS = +(q.get('clip') || 2);         // audio clip length in seconds
-const v = document.getElementById('v'), c = document.getElementById('c'), s = document.getElementById('s');
-const ctx = c.getContext('2d');
-let running = false, sent = 0, wakeLock = null, audio = null, lastAudio = '';
-
-if (!cam) {  // no id: pick the room you are in (rooms of the twin on screen), or a camera of the map
-  document.getElementById('b').style.display = document.getElementById('shot').style.display = 'none';
-  fetch('/').then(r => r.json()).then(j => {
-    const list = document.getElementById('list');
-    const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.textContent = text; list.append(a); };
-    if (j.rooms.length) {
-      s.textContent = 'Which room are you in?';
-      j.rooms.forEach(name => link('/camera?id=' + encodeURIComponent(name), name));
-    } else {
-      s.textContent = `Map "${j.map}". Pick the camera this phone is:`;
-      Object.entries(j.cameras).forEach(([id, x]) => link(x.page, `${x.name} (${id})`));
-    }
-  });
-}
-
-// One still photo from the phone's own camera app. No live stream, so plain http on the venue Wi-Fi is enough.
-document.getElementById('photo').onchange = async ev => {
-  const file = ev.target.files[0]; ev.target.value = '';
-  if (!file) return;
-  const img = await createImageBitmap(file), k = Math.min(1, 1024 / Math.max(img.width, img.height));
-  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); ctx.drawImage(img, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
-  try {
-    await fetch('/frame/' + encodeURIComponent(cam), { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
-    s.innerHTML = `<b>${cam}</b> · photo sent. <span class="ok">Watch the big screen.</span>`;
-  } catch (e) { s.innerHTML = '<span class="bad">Upload failed: ' + e.message + '</span>'; }
+const $ = id => document.getElementById(id);
+const v = $('v'), c = $('c'), ctx = c.getContext('2d');
+const TEXT = {
+  start: 'Start camera', stop: 'Stop',
+  blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
+  sent: 'Photo sent. Watch the big screen.', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…'
 };
+let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
 
-async function keepAwake() {
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+const show = (el, on) => { el.hidden = !on; };
+function status(text, cls) { $('status').textContent = text; $('status').className = cls || ''; }
+
+/* Step 1 -> step 2. Called from a tap, so the browser lets the camera start at once. */
+function enter(room, startNow) {
+  cam = room;
+  history.replaceState(null, '', '/camera?id=' + encodeURIComponent(room));
+  $('where').textContent = 'Tap the room name to change it';
+  $('change').textContent = room;
+  show($('pick'), false); show($('cam'), true); show($('change'), true);
+  if (startNow) start();
 }
+
+function leave() {
+  stop();
+  cam = null;
+  history.replaceState(null, '', '/camera');
+  $('where').textContent = 'Pick the room you are in';
+  show($('cam'), false); show($('change'), false); show($('pick'), true);
+}
+
+fetch('/').then(r => r.json()).then(j => {
+  const names = j.rooms.length ? j.rooms : Object.keys(j.cameras);   // rooms of the twin, else cameras of the map
+  for (const name of names) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => enter(name, true);
+    $('rooms').append(b);
+  }
+});
+if (cam) enter(cam, false);
+$('change').onclick = leave;
+
+async function keepAwake() { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
 document.addEventListener('visibilitychange', () => { if (running && document.visibilityState === 'visible') keepAwake(); });
 
-document.getElementById('b').onclick = async () => {
-  if (running) { running = false; stopAudio(); document.getElementById('b').textContent = 'Start camera'; return; }
-  const withMic = document.getElementById('mic').checked;
+async function start() {
+  const withMic = $('mic').checked;
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: withMic });
-    v.srcObject = new MediaStream(stream.getVideoTracks()); await v.play();
+    if (!navigator.mediaDevices) throw new Error('no camera API on this link');
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: withMic });
   } catch (e) {
-    s.innerHTML = '<span class="bad">Camera blocked: ' + e.message +
-      '. Phones need HTTPS (use the tunnel URL), and allow camera permission.</span>';
+    $('note').textContent = TEXT.blocked; show($('note'), true);
+    status(e.message, 'bad');
     return;
   }
+  v.srcObject = new MediaStream(stream.getVideoTracks());
+  try { await v.play(); } catch (e) {}
+  show($('note'), false);
   keepAwake();
-  running = true; document.getElementById('b').textContent = 'Stop';
+  running = true; $('b').textContent = TEXT.stop;
+  status(TEXT.warming);
   if (withMic && stream.getAudioTracks().length) startAudio(stream);
   loop();
-};
+}
+
+function stop() {
+  running = false; stopAudio();
+  if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
+  $('b').textContent = TEXT.start;
+}
+
+$('b').onclick = () => (running ? stop() : start());
 
 // ---- audio: raw PCM -> 16 kHz mono WAV clips (the API takes audio/wav, not the browser's webm)
 function startAudio(stream) {
@@ -96,11 +169,11 @@ function startAudio(stream) {
     if (n >= ac.sampleRate * clipS) { sendClip(buf, n, ac.sampleRate); buf = []; n = 0; }
   };
   src.connect(proc); proc.connect(ac.destination);
-  audio = { ac, proc, src };
+  audio = { ac, proc, src, tracks: stream.getAudioTracks() };
 }
 function stopAudio() {
   if (!audio) return;
-  audio.proc.disconnect(); audio.src.disconnect(); audio.ac.close(); audio = null;
+  audio.proc.disconnect(); audio.src.disconnect(); audio.ac.close(); audio.tracks.forEach(t => t.stop()); audio = null;
 }
 function sendClip(chunks, n, rate) {
   const pcm = new Float32Array(n); let o = 0;
@@ -117,8 +190,20 @@ function sendClip(chunks, n, rate) {
     wav.setInt16(44 + i * 2, x * 0x7fff, true);
   }
   fetch('/audio/' + encodeURIComponent(cam), { method: 'POST', body: wav.buffer, headers: { 'Content-Type': 'audio/wav' } })
-    .then(r => r.json()).then(j => { lastAudio = j.error ? 'audio error' : `audio ${j.event}`; })
-    .catch(() => { lastAudio = 'audio upload failed'; });
+    .then(r => r.json()).then(j => { $('fSound').textContent = j.error ? 'error' : j.event; })
+    .catch(() => { $('fSound').textContent = 'failed'; });
+}
+
+function report(j, ms) {
+  $('fPeople').textContent = j.peopleCount;
+  $('fHazard').textContent = j.hazard;
+  if (j.ok) status('frames ' + sent + ' · upload ' + ms + ' ms · Gemini ' + (j.latencyMs == null ? '-' : j.latencyMs) + ' ms', 'ok');
+  else status(j.error || TEXT.warming, j.error ? 'bad' : '');
+}
+
+async function postFrame(blob) {
+  const r = await fetch('/frame/' + encodeURIComponent(cam), { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
+  return r.json();
 }
 
 async function loop() {
@@ -128,21 +213,24 @@ async function loop() {
       const h = Math.round(v.videoHeight * width / v.videoWidth);
       c.width = width; c.height = h; ctx.drawImage(v, 0, 0, width, h);
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.6));
-      try {
-        const r = await fetch('/frame/' + encodeURIComponent(cam),
-          { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
-        const j = await r.json(); sent++;
-        s.innerHTML = `<b>${cam}</b>${j.known ? '' : ' <span class="bad">(not in the map)</span>'} · frames ${sent} · upload ${Math.round(performance.now() - t0)} ms<br>` +
-          `people <b>${j.peopleCount}</b> · hazard ${j.hazard} · ${lastAudio} · pipeline ${j.latencyMs ?? '-'} ms ` +
-          (j.ok ? '<span class="ok">OK</span>' : `<span class="bad">${j.error || 'warming up'}</span>`);
-      } catch (e) {
-        s.innerHTML = '<span class="bad">Upload failed: ' + e.message + '</span>';
-      }
+      try { const j = await postFrame(blob); sent++; report(j, Math.round(performance.now() - t0)); }
+      catch (e) { status(TEXT.failed + e.message, 'bad'); }
     }
     const wait = intervalMs - (performance.now() - t0);
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
 }
+
+// One still photo from the phone's own camera app. No live stream, so plain http on the venue Wi-Fi is enough.
+$('photo').onchange = async ev => {
+  const file = ev.target.files[0]; ev.target.value = '';
+  if (!file) return;
+  const img = await createImageBitmap(file), k = Math.min(1, 1024 / Math.max(img.width, img.height));
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); ctx.drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
+  try { await postFrame(blob); status(TEXT.sent, 'ok'); }
+  catch (e) { status(TEXT.failed + e.message, 'bad'); }
+};
 </script>
 </body>
 </html>
