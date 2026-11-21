@@ -25,6 +25,10 @@
 <div id="stats"></div>
 
 <aside>
+  <table id="liveTable" hidden>
+    <thead><tr><th>Live camera</th><th>People</th><th>Gemini</th></tr></thead>
+    <tbody id="live"></tbody>
+  </table>
   <table id="seenTable" hidden>
     <thead><tr><th>Gemini saw</th></tr></thead>
     <tbody id="seen"></tbody>
@@ -49,7 +53,7 @@
     <button id="fix" class="primary">Find fix</button>
     <button id="apply" disabled>Apply best + replay</button>
   </div>
-  <div class="status"><span id="layoutName"></span><div id="log"></div></div>
+  <div class="status"><span id="feedState"></span><span id="layoutName"></span><div id="log"></div></div>
 </footer>
 
 <dialog id="setupDlg">
@@ -66,6 +70,7 @@
   <div class="options">
     <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
     <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>
+    <label><span>A camera that sees fire starts the fire</span><input id="autofire" type="checkbox" checked></label>
   </div>
   <label>Floor plan and/or video → new twin <input id="media" type="file" multiple accept="image/*,application/pdf,video/*"></label>
   <label>Room photo or video → update this twin <input id="walk" type="file" multiple accept="image/*,video/*"></label>
@@ -79,6 +84,7 @@
 <script src="vendor/three.bundle.js"></script>
 <script src="render3d.js"></script>
 <script src="gemini.js"></script>
+<script src="feed.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

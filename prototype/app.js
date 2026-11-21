@@ -1,10 +1,11 @@
 /* Wiring: DOM events <-> sim.js, render.js, gemini.js. No physics, no prompts. */
 (function () {
   'use strict';
-  const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts;
+  const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts, FEED = window.Feed;
   const $ = id => document.getElementById(id);
   const SEED = 7;
   const KEY_STORE = 'fireTwinGeminiKey';
+  const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
@@ -58,6 +59,46 @@
     $('seenTable').hidden = !notes.length;
   }
 
+  /* ---- Live feed: phones -> perception server -> Observations, one per room. ---- */
+  const live = new Map();   // room name -> latest Observation
+
+  /* Tell the feed server the key and the rooms. Quiet if the server is off: the twin works without it. */
+  function syncFeed() {
+    if (!state.layout) return;
+    FEED.configure(cfg().key, state.layout.rooms.map(r => r.name)).catch(() => {});
+  }
+
+  function showLive() {
+    const rows = [...live.values()].map(o => {
+      const tr = el('tr'), bad = o.events.length || (o.stream && o.stream.error);
+      const what = (o.stream && o.stream.error) || [o.density].concat(o.events).join(', ');
+      [o.cameraId, o.peopleCount, what].forEach((v, k) => tr.append(el('td', v, k === 2 && bad ? 'bad' : '')));
+      return tr;
+    });
+    $('live').replaceChildren(...rows);
+    $('liveTable').hidden = !rows.length;
+  }
+
+  /* One camera update. Before the fire: its head count goes into the twin. A camera that sees fire starts the fire. */
+  function onObservation(o) {
+    const room = state.layout.rooms.find(r => r.name === o.cameraId);
+    if (!room) return;
+    live.set(o.cameraId, o);
+    showLive();
+    const sim = state.sim, idle = sim.alarmTick < 0;
+    if (idle && o.stream && o.stream.ok && o.peopleCount !== room.people) {
+      room.people = o.peopleCount;
+      $('json').value = JSON.stringify(state.layout);
+      reset();
+    }
+    if (idle && $('autofire').checked && o.events.includes('fire')) {
+      if (state.sim.ignite(Math.floor(room.x + room.w / 2), Math.floor(room.y + room.h / 2))) {
+        state.running = true;
+        log('Camera in ' + room.name + ' sees fire. Fire started there.');
+      }
+    }
+  }
+
   function setView(mode) {
     const v = VIEWS[mode];
     Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
@@ -80,6 +121,8 @@
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
     showSeen(G.notesOf(L));
+    live.clear(); showLive();
+    syncFeed();
     reset();
     say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
   }
@@ -218,11 +261,13 @@
     const keyChanged = () => {
       sessionStorage.setItem(KEY_STORE, cfg().key);
       $('keyState').textContent = cfg().key ? KEY_SAVED : KEY_MISSING;
+      syncFeed();
     };
     $('key').value = sessionStorage.getItem(KEY_STORE) || '';
     on('key', 'input', keyChanged);
     keyChanged();
     setView('2d');
+    FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);
   }

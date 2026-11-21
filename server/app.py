@@ -24,7 +24,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import perception as P
 from geometry import MapInfo, jpeg_aspect
@@ -50,6 +50,7 @@ cams: dict[str, dict] = {}  # per-camera working state
 workers: dict[str, asyncio.Task] = {}
 observations: dict[str, dict] = {}  # latest Observation per cameraId
 clients: set[WebSocket] = set()
+rooms: list[str] = []  # room names of the twin on screen (prototype/). A room name also works as a camera id.
 
 
 def ensure_cam(cam_id: str):
@@ -75,7 +76,8 @@ def refresh_pose(cam_id: str):
     """Recompute which exits a camera sees (after load or after the browser moves it)."""
     c = cams[cam_id]
     c["exits"] = MAP.visible_exits(cam_id)
-    c["questions"] = P.build_questions(bool(c["exits"]))
+    # A room of the twin (not a map camera) has doors: always ask if the way out is blocked.
+    c["questions"] = P.build_questions(bool(c["exits"]) or cam_id not in MAP.cameras)
 
 
 def observation(cam_id: str) -> dict:
@@ -255,6 +257,26 @@ async def post_audio(cam_id: str, request: Request):
         return {"cameraId": cam_id, "error": f"{type(e).__name__}: {e}"[:300]}
 
 
+def is_local(request: Request) -> bool:
+    """True only for a request made on this machine, not one that came in through a tunnel or proxy."""
+    host = request.client.host if request.client else ""
+    forwarded = any(h in request.headers for h in ("cf-connecting-ip", "x-forwarded-for", "forwarded"))
+    return host in ("127.0.0.1", "::1") and not forwarded
+
+
+@app.post("/twin")
+async def post_twin(request: Request):
+    """From the Fire Twin page on this machine: the API key (kept in memory) and the room names of the twin."""
+    if not is_local(request):
+        return JSONResponse({"error": "local requests only"}, status_code=403)
+    body = await request.json()
+    if isinstance(body.get("key"), str):
+        P.set_key(body["key"])
+    if isinstance(body.get("rooms"), list):
+        rooms[:] = [str(r)[:60] for r in body["rooms"][:200]]
+    return {"ready": P.has_key(), "rooms": len(rooms)}
+
+
 @app.websocket("/ws")
 async def ws_feed(ws: WebSocket):
     """Server -> browser: {"type":"observation","observation":Observation}, latest per camera on connect.
@@ -294,6 +316,6 @@ async def camera_page():
 
 @app.get("/")
 async def index():
-    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated",
+    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms,
             "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
             "ws": "/ws", "observations": "/observations"}

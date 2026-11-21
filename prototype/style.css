@@ -79,7 +79,8 @@ footer { grid-area: dock; display: grid; gap: var(--gap); }
 .row { display: flex; gap: var(--gap); }
 .row > * { flex: 1 1 0; min-width: 0; }
 .status { display: flex; gap: var(--gap); height: 18px; overflow: hidden; color: var(--muted); font: 11px/18px var(--mono); }
-#layoutName { flex: none; }
+#layoutName, #feedState { flex: none; }
+td:nth-child(3) { white-space: normal; }
 #log { flex: 1; min-width: 0; }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
