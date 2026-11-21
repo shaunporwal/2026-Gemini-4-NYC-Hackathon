@@ -32,15 +32,15 @@ server/          Thin backend: Gemini live-feed interpretation → Observations 
 ```
 
 ## Commands
-The repo currently holds **docs and directory structure only**: no app code yet.
-Planned stack: Vite + TypeScript + three.js in `web/`. Once it's set up, these will be the commands:
+`web/` is Vite + TypeScript + three.js. The map module and a starter renderer exist; the sim modules don't yet.
+`prototype/` is a separate plain-JS demo (2D canvas, its own rules in `prototype/AGENTS.md`).
 ```bash
 cd web
 npm install
 npm run dev        # http://localhost:5173
 npm run build      # typecheck + production build; run before pushing
 ```
-The first setup step is to create `web/src/shared/types.ts` verbatim from `docs/CONTRACTS.md`.
+Load another map with `?map=/maps/cafe.json`. `web/src/shared/types.ts` must stay identical to `docs/CONTRACTS.md`.
 
 ## Hard rules
 - **Stay in your lane.** Each folder in `web/src/` has an owner (`docs/PLAN.md`). A system only

@@ -1,7 +1,7 @@
 # Contracts: shared types between modules
 
-This is **the contract between teammates**. When the web app is set up, this block is copied
-as-is into `web/src/shared/types.ts`, and every module imports its cross-module types from there.
+This is **the contract between teammates**. It mirrors `web/src/shared/types.ts`, the file every
+module imports its cross-module types from. Keep the two identical.
 
 **Changing a contract:** update this doc, the TypeScript file, and any related doc
 (`MAP_SCHEMA.md`, `ARCHITECTURE.md`) in the same commit, then tell the team.
@@ -18,37 +18,8 @@ Types marked **DRAFT** belong to the module owner, who finalises them.
 ```ts
 // ───────────────────────── Map JSON (on disk) ─────────────────────────
 
-export type CellTypeName = "wall" | "floor" | "door" | "exit" | "void";
-
-export type ObjectType =
-  | "table"
-  | "chair"
-  | "bar"
-  | "stage"
-  | "seating"
-  | "shelf"
-  | "obstacle";
-
-export interface MapObjectDef {
-  id: string;
-  type: ObjectType;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  height?: number; // metres, overrides catalog default
-  blocksMovement?: boolean; // overrides catalog default
-  fuel?: number; // 0..1, overrides catalog default (fire model)
-}
-
-export interface ZoneDef {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+/** Every kind of thing a grid character can stand for. Registry: web/src/map/cellTypes.ts */
+export type CellTypeName = "void" | "floor" | "wall" | "door" | "exit" | "table" | "chair" | "person";
 
 export interface CameraDef {
   id: string;
@@ -62,27 +33,42 @@ export interface CameraDef {
   range: number; // cells
 }
 
+export interface ZoneDef {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface MapFile {
   version: 1;
   name: string;
   cellSize?: number; // metres per cell, default 0.5
   wallHeight?: number; // metres, default 3
+  /** Extra/overriding characters, e.g. { "B": "table" }. Merged over the default legend. */
   legend?: Record<string, CellTypeName>;
+  /** The grid. One character per cell, all rows the same length. Size = rows[0].length × rows.length. */
   rows: string[];
-  objects?: MapObjectDef[];
   zones?: ZoneDef[];
   cameras?: CameraDef[];
 }
 
 // ───────────────────────── Runtime map (static) ─────────────────────────
 
-/** Numeric cell codes stored in MapModel.cells. (Plain object, not const enum — Vite/esbuild-safe.) */
+/**
+ * Numeric code stored per cell in MapModel.cells. "person" is NOT a cell code: a person
+ * character becomes a Floor cell plus an entry in MapModel.people.
+ */
 export const CellType = {
   Void: 0,
   Floor: 1,
   Wall: 2,
   Door: 3,
   Exit: 4,
+  Table: 5,
+  Chair: 6,
 } as const;
 export type CellType = (typeof CellType)[keyof typeof CellType];
 
@@ -91,24 +77,33 @@ export interface CameraState extends CameraDef {
   visibleCells: Uint32Array;
 }
 
+export interface PersonSpawn {
+  id: number;
+  x: number; // cell centre, cells (float)
+  y: number;
+}
+
 export interface MapModel {
   name: string;
   width: number;
   height: number;
   cellSize: number;
   wallHeight: number;
-  /** CellType per cell (structure only, from `rows`). */
+  /** CellType per cell. */
   cells: Uint8Array;
-  /** 1 if agents can stand here (structure + objects applied). */
+  /** 1 if agents can stand/move here. */
   walkable: Uint8Array;
-  /** Base fuel per cell 0..1 (floor default + objects). Fire module may reinterpret. */
+  /** 1 if the cell blocks camera line of sight. */
+  opaque: Uint8Array;
+  /** Base fuel per cell 0..1. Fire module may reinterpret. */
   baseFuel: Float32Array;
   /** Zone index per cell, -1 if none. */
   zoneOf: Int16Array;
-  objects: MapObjectDef[];
   zones: ZoneDef[];
   cameras: CameraState[];
   exitCells: Uint32Array;
+  /** Initial people placed in the grid with the person character. */
+  people: PersonSpawn[];
 }
 
 // ───────────────────────── Simulation state (dynamic) ─────────────────────────
@@ -127,7 +122,7 @@ export interface Agent {
   sourceCameraId?: string;
 }
 
-/** Message from the Gemini feed (server → browser). DRAFT — owned by the feed teammate. */
+/** Message from the Gemini feed (server → browser). DRAFT, owned by the feed teammate. */
 export interface Observation {
   cameraId: string;
   timestamp: number; // ms epoch
@@ -137,9 +132,7 @@ export interface Observation {
   summary?: string; // free-text scene description
 }
 
-export type SimEvent =
-  | { type: "ignite"; x: number; y: number }
-  | { type: "reset" };
+export type SimEvent = { type: "ignite"; x: number; y: number } | { type: "reset" };
 
 export interface SimState {
   time: number; // seconds since sim start
@@ -151,7 +144,7 @@ export interface SimState {
   fuel: Float32Array; // remaining fuel 0..1
   agents: Agent[];
   observations: Map<string, Observation>; // latest per cameraId
-  events: SimEvent[]; // queued this frame, consumed by systems
+  events: SimEvent[]; // queued this step, consumed by systems
 }
 
 export interface SimSystem {
@@ -170,15 +163,14 @@ export interface StatsSnapshot {
   casualties: number;
   trapped: number; // active agents with no reachable exit
   timeToClear: number | null; // seconds, null until all non-casualties evacuated
-  /** Cell index → congestion score, for doors/corridors. */
-  bottlenecks: { cell: number; score: number }[];
+  bottlenecks: { cell: number; score: number }[]; // cell index → congestion score
 }
 ```
 
 ## Who owns which type
 | Type | Owner |
 |---|---|
-| `MapFile`, `MapObjectDef`, `ZoneDef`, `CameraDef`, `MapModel`, `CameraState`, `CellType` | map |
+| `MapFile`, `CellTypeName`, `ZoneDef`, `CameraDef`, `MapModel`, `CameraState`, `PersonSpawn`, `CellType` | map |
 | `SimState` layers `fire`, `smoke`, `heat`, `fuel` | fire |
 | `Agent`, `SimState.agents` | crowd |
 | `Observation` (**DRAFT**) | feed / server |

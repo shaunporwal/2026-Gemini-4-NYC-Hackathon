@@ -8,9 +8,10 @@ the layout and compare the outcomes, **before a real emergency happens**.
 Built at the Gemini NYC Hackathon (2026-11-21).
 
 ## Status
-Planning stage: docs and directory structure are in place, and no app code exists yet.
-Start with [CLAUDE.md](CLAUDE.md) and [docs/VISION.md](docs/VISION.md).
-Planned stack: Vite + TypeScript + three.js (`web/`) and a thin Gemini backend (`server/`).
+- `web/`: the map architecture (JSON grid schema, loader, cameras) and a starter three.js voxel renderer.
+  Run: `cd web && npm install && npm run dev`, then open http://localhost:5173 (`?map=/maps/cafe.json` for the small map).
+- `prototype/`: a plain-JS 2D prototype with a working fire/smoke/evacuation sim and Gemini calls (open `prototype/index.html`).
+- Start with [CLAUDE.md](CLAUDE.md), [docs/VISION.md](docs/VISION.md) and [docs/MAP_SCHEMA.md](docs/MAP_SCHEMA.md).
 
 ## Docs
 | Doc | What's in it |
