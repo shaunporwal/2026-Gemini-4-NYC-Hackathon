@@ -17,7 +17,7 @@
 
   /* plan = the layout as loaded (floor plan only). layout = the same building after the phones changed it.
    * seen = the rooms a phone changed. Every run on `layout` is also run on `plan`: the gap is what the cameras add. */
-  const state = { layout: null, plan: null, seen: new Set(), frozen: false, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
+  const state = { layout: null, plan: null, seen: new Set(), frozen: false, guessed: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
   /* Three views of the same sim: 2D canvas, 3D voxels, live phone cameras. Same interface; each starts on first use. */
   const VIEWS = {
     '2d': { canvas: 'cv', make: window.FireRender },
@@ -260,22 +260,49 @@
 
   /* Keep the camera-informed layout across a reload of this tab (the phones' work must not be lost on stage). */
   function remember() {
-    sessionStorage.setItem(INFORMED_STORE, JSON.stringify({ layout: state.layout, plan: state.plan, seen: [...state.seen] }));
+    sessionStorage.setItem(INFORMED_STORE, JSON.stringify({ layout: state.layout, plan: state.plan, seen: [...state.seen], guessed: state.guessed }));
   }
 
   /* A phone changed this room (head count or furniture). */
-  function informed(roomName) { state.seen.add(roomName); remember(); }
+  function informed(roomName) {
+    state.seen.add(roomName);
+    if (state.guessed) delete state.guessed[roomName];   // this room is observed now: its guess is not needed
+    remember();
+  }
+
+  /* "Only what phones have seen": rooms that no phone has reported are emptied (people = 0). Their guessed
+   * head counts are kept in state.guessed (room name -> people) and come back when the switch goes off.
+   * Off = the floor plan's guesses fill the rooms without a phone. */
+  function setLiveOnly(on) {
+    if (on && !state.guessed) {
+      state.guessed = {};
+      for (const r of state.layout.rooms) if (!state.seen.has(r.name)) { state.guessed[r.name] = r.people; r.people = 0; }
+    } else if (!on && state.guessed) {
+      for (const r of state.layout.rooms) if (r.name in state.guessed) r.people = state.guessed[r.name];
+      state.guessed = null;
+    }
+    $('liveOnly').checked = !!state.guessed;
+    state.layout.liveOnly = !!state.guessed;   // travels with the layout, so a copy of the page accepts an empty twin
+    $('json').value = JSON.stringify(state.layout);
+    remember(); syncFeed();
+    if (state.sim.alarmTick < 0) reset();
+    const n = state.layout.rooms.reduce((a, r) => a + r.people, 0);
+    log(on ? 'Only what phones have seen: ' + n + ' people in ' + state.seen.size + ' room' + (state.seen.size === 1 ? '' : 's') + '. Rooms without a phone are empty.'
+           : 'Rooms without a phone use the floor plan\'s guess again: ' + n + ' people.');
+  }
 
   /* restored = {plan, seen} from remember(): L is then a camera-informed layout, not a fresh plan. */
   function loadLayout(L, restored) {
     const errs = F.validateLayout(L);
     if (errs.length) throw new Error(errs.join('; '));
     const s = new F.Sim(L).stats();
-    if (!s.total) throw new Error('layout has no people');
+    if (!s.total && !restored && !L.liveOnly) throw new Error('layout has no people');   // an emptied twin (only what phones have seen) is allowed
     if (s.trapped) log('Warning: ' + s.trapped + ' of ' + s.total + ' people have no route to an exit.');
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     state.plan = restored ? restored.plan : F.clone(L);
     state.seen = new Set(restored ? restored.seen : []);
+    state.guessed = (restored && restored.guessed) || null;
+    $('liveOnly').checked = !!state.guessed;
     remember();
     $('json').value = JSON.stringify(L);
     for (const id of ['familiarExit', 'secondExit']) {
@@ -299,7 +326,8 @@
   /* The run is over. If phones changed the twin, run the SAME fire on the plan-only twin too:
    * the 2 rows side by side show what the cameras and microphones add. */
   function onDone() {
-    const r = state.sim.stats(), compare = state.seen.size && state.label === 'Baseline';
+    // With "only what phones have seen" on, the twin holds a part of the crowd: a row for the whole floor plan would not compare.
+    const r = state.sim.stats(), compare = state.seen.size && state.label === 'Baseline' && !state.guessed;
     state.running = false;
     state.lastIgn = state.sim.ignitions.slice();
     if (!compare) {
@@ -504,6 +532,7 @@
     on('queueOpening', 'change', () => updateQueues(state.sim));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('freeze', 'click', () => setFrozen(!state.frozen));
+    on('liveOnly', 'change', () => setLiveOnly($('liveOnly').checked));
     on('pause', 'click', () => {
       state.running = !state.running && (comparison
         ? !(comparison.baseline.done && comparison.guided.done)
