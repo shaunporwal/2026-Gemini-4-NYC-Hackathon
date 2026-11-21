@@ -65,9 +65,13 @@
 
     /* Load the next picture off screen, then swap: no flicker, and a failed load keeps the last one. */
     function show(t, url) {
+      if (t.loading) return false;   // the last picture is still on its way (slow link): do not pile up requests
       const next = new Image();
-      next.onload = () => { t.img.src = next.src; };
+      t.loading = true;
+      next.onload = () => { t.loading = false; t.img.src = next.src; };
+      next.onerror = () => { t.loading = false; };
       next.src = url;
+      return true;
     }
 
     /* Share of the room that is smoke (0..1) and that is burning (0..1), from the sim. */
@@ -154,9 +158,9 @@
       for (const { key, room, phone, n } of rooms) {
         const tl = tiles.get(key) || tile(room, key), o = cams.get(room), pin = pinned.get(room), st = roomState(sim, room);
         const lastS = (o && o.stream && o.stream.lastFrame) || 0, stopped = nowS - lastS > STALE_S;
-        if (pin) { if (tl.shown !== pin.url) { tl.shown = pin.url; show(tl, pin.url); } }
+        if (pin) { if (tl.shown !== pin.url && show(tl, pin.url)) tl.shown = pin.url; }
         // A running camera: each second. A stopped one (or a single photo): once for each new frame.
-        else if (o && due && (!stopped || tl.shown !== o.timestamp)) { tl.shown = o.timestamp; show(tl, src.frameUrl(room, phone)); }
+        else if (o && due && (!stopped || tl.shown !== o.timestamp)) { if (show(tl, src.frameUrl(room, phone))) tl.shown = o.timestamp; }
         tl.haze.style.opacity = Math.min(HAZE_MAX, st.smoke * HAZE_MAX * 1.5);
         tl.glow.style.opacity = Math.min(1, st.fire * GLOW_GAIN) * (0.75 + 0.25 * Math.sin(t / 90));
         const sim1 = st.fire > 0 ? TEXT.fire : st.smoke > 0.02 ? TEXT.smoke + Math.round(st.smoke * 100) + '%' : '';
