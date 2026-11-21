@@ -36,13 +36,13 @@
     root.append(grid, el('div', 'none', TEXT.none), saved, join);
     const tiles = new Map();    // room name -> {fig, img, haze, glow, cap, shown}
     const pinned = new Map();   // room name -> {url, t}: a saved frame shown in place of the live one
-    let lastFrames = 0, lastInfo = -INFO_MS, link = null, stripKey = '';
+    let lastFrames = 0, lastInfo = -INFO_MS, link = null, stripKey = '', chosen = null;   // chosen = address of the saved frame on show
 
     function tile(room) {
       const fig = el('figure'), img = el('img'), haze = el('div', 'haze'), glow = el('div', 'glow'), cap = el('figcaption');
       img.alt = 'Camera in ' + room;
       fig.append(img, haze, glow, cap);
-      fig.onclick = () => { if (pinned.delete(room)) tiles.get(room).shown = null; };
+      fig.onclick = () => { if (pinned.delete(room)) { tiles.get(room).shown = null; chosen = null; mark(); } };
       grid.append(fig);
       const t = { fig, img, haze, glow, cap, shown: null };
       tiles.set(room, t);
@@ -81,14 +81,39 @@
       saved.hidden = !list.length;
       if (key === stripKey) return;
       stripKey = key;
+      const hadFocus = strip.contains(document.activeElement);
       strip.replaceChildren(...list.map(f => {
         const b = el('button'), img = el('img'), url = src.captureUrl(f.room, f.file);
         img.src = url; img.alt = ''; img.loading = 'lazy';
+        b.dataset.url = url;
         b.append(img, el('span', null, f.room), el('span', null, clock(f.t)));
-        b.onclick = () => { pinned.set(f.room, { url, t: f.t }); (tiles.get(f.room) || tile(f.room)).shown = null; };
+        b.onclick = () => {
+          pinned.set(f.room, { url, t: f.t });
+          (tiles.get(f.room) || tile(f.room)).shown = null;
+          chosen = url; mark();
+        };
         return b;
       }));
+      mark();
+      if (hadFocus) { const b = current(); if (b) b.focus({ preventScroll: true }); }
     }
+
+    /* The saved frame on show is marked in the strip. Left and right arrow keys step through the frames. */
+    const current = () => [...strip.children].find(b => b.dataset.url === chosen);
+    function mark() {
+      for (const b of strip.children) b.setAttribute('aria-pressed', String(b.dataset.url === chosen));
+    }
+    strip.addEventListener('keydown', ev => {
+      const step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();   // the keys choose a frame; they do not scroll the strip
+      const all = [...strip.children], at = all.indexOf(current() || document.activeElement);
+      const next = all[Math.max(0, Math.min(all.length - 1, at + step))];
+      if (!next) return;
+      next.click();
+      next.focus({ preventScroll: true });
+      next.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
 
     function poll(now) {
       if (now - lastInfo < INFO_MS) return;
