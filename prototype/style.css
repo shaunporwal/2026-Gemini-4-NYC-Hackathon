@@ -156,11 +156,17 @@ label { display: block; color: var(--muted); font-size: var(--fs-small); }
 .options label + label { border-top: 1px solid var(--line-strong); }
 
 /* Wide: map on the left, facts + tables + dock in one right column. */
-/* Narrow: the layout select gets its own line under the title and the view switch. */
+/* Narrow (a phone). One top row. The map gets the height: short PA line, short side panel.
+   Presenter: title + view switch + Setup, then the layout select on its own line.
+   Phone copy: page switch + view switch only (no title: the page switch names the app's 2 pages). */
 @media (max-width: 819px) {
-  header { flex-wrap: wrap; }
+  :root { --side-h: 17dvh; }
+  header { flex-wrap: wrap; justify-content: space-between; }
   h1 { flex: 1; }
   header select { order: 1; flex: 1 0 100%; }
+  header:has(#pages:not([hidden])) h1 { display: none; }
+  #pages a { min-width: 76px; padding: 0 12px; }
+  #pa { min-height: 36px; padding: 4px var(--gutter); font-size: var(--fs); line-height: 1.25; }
 }
 
 @media (min-width: 820px) {
