@@ -21,10 +21,13 @@ Planned stack: Vite + TypeScript + three.js (`web/`) and a thin Gemini backend (
 | [docs/CONTRACTS.md](docs/CONTRACTS.md) | Shared TypeScript types: the contract between modules |
 | [docs/PLAN.md](docs/PLAN.md) | Owners, 6-hour timeline, git workflow, open questions |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Decisions made so far |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | Session handoff: prototype status, Gemini facts, next steps, stage script |
+| [docs/The_Malin_Chelsea_Floor_Plan.pdf](docs/The_Malin_Chelsea_Floor_Plan.pdf) | Venue floor plan (input for the Malin layout) |
 | [CLAUDE.md](CLAUDE.md) | Rules for coding agents (and a good summary for humans) |
 
 ## Layout
 ```
 docs/     project docs          schemas/  map JSON Schema
 web/      browser app + sim     server/   Gemini live-feed backend
+prototype/  standalone plain-JS demo (open index.html, no build)
 ```

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fire Twin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Fire Twin</h1>
+  <span id="layoutName"></span>
+  <div id="pa" aria-live="polite"></div>
+</header>
+<main>
+  <section id="stage"><canvas id="cv"></canvas></section>
+  <aside>
+    <div id="stats"></div>
+
+    <div class="row">
+      <button id="pause">Pause / Resume</button>
+      <button id="reset">Reset</button>
+      <button id="replay">Replay same fire</button>
+    </div>
+    <label>Layout <select id="preset"></select></label>
+    <label>Speed <input id="speed" type="range" min="4" max="60" value="16"></label>
+    <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
+
+    <h2>Fix</h2>
+    <div class="row">
+      <button id="fix" class="primary">Find fix</button>
+      <button id="apply" class="primary" disabled>Apply best + replay</button>
+    </div>
+    <table><thead><tr><th>Candidate</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead><tbody id="fixes"></tbody></table>
+
+    <h2>Runs</h2>
+    <table><thead><tr><th>Layout</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead><tbody id="runs"></tbody></table>
+
+    <h2>Gemini</h2>
+    <label>API key <input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
+    <label>Model <input id="model" type="text" value="gemini-4-hydrogen"></label>
+    <label class="check"><input id="gpa" type="checkbox" checked> Gemini writes the PA text</label>
+    <label class="check"><input id="voice" type="checkbox" checked> Speak the PA text</label>
+    <label>Floor plan (photo or PDF) → twin <input id="photo" type="file" accept="image/*,application/pdf"></label>
+    <details>
+      <summary>Layout JSON</summary>
+      <textarea id="json" rows="6" spellcheck="false"></textarea>
+      <div class="row"><button id="loadJson">Load JSON</button></div>
+    </details>
+
+    <h2>Log</h2>
+    <div id="log"></div>
+  </aside>
+</main>
+<script src="layouts.js"></script>
+<script src="sim.js"></script>
+<script src="render.js"></script>
+<script src="gemini.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
