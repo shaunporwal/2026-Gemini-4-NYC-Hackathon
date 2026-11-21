@@ -5,9 +5,10 @@ headless, on a snapshot of the live world, and it watches in the background and 
 
 > Status: **planned**. The closest existing pieces on `main`: `sim.run()` (headless, works in Node) and the
 > prototype's "Find fix" (Gemini proposes changes and the simulator scores them, called from the browser).
-> The prototype's **Advisor tab** (`prototype/advisor.js`, `analysis.js`; DECISIONS C10) now does a mixed sweep,
-> tests changes on the same scenarios and has Gemini write an advice guide, in the browser. No chat, map highlight
-> or background alert exists yet.
+> **Built (first version, DECISIONS C12):** the chat in the prototype's Assistant panel talks to `server/agent.py`, a Gemini
+> function-calling loop (Hydrogen) over `get_world_summary`, `run_scenario`, `run_sweep`, `test_changes`, `highlight_opening`,
+> `suggest` and `show_replay`. The tools run the prototype engine in Node (`server/sim_tools.js`) on the snapshot the page sends.
+> The Advisor tab (C10) uses the same server for its proposals and guide. Not built yet: background watch and alerts.
 
 ## What it does
 

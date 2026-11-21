@@ -52,7 +52,13 @@ Each waiting person adds 0.5 person-seconds per tick. Waiting smoke exposure sum
 2. Summarises what went wrong: losses by cause (fire, smoke, crush), the busiest openings, the costliest fire starts, the worst scenarios. The **risk map** shows where people were lost (red) and where they fell (amber) over all runs.
 3. Picks changes to test: search (unlock each locked exit, widen the 2 busiest openings, cap the room whose fires cost the most) plus up to 4 from the fast model (Hydrogen). New actions: `widen` (an opening 1 m wider) and `cap_room` (an occupancy limit).
 4. Runs every scenario again with each change, so each result is a measured difference on the same scenarios (mean lost per run, crush falls, runs better / worse).
-5. The reasoning model (Neon) writes the **advice guide** from those numbers: the most prevalent hazards, what staff do when each happens, prevention ranked by measured effect, what to watch for. It is told never to recommend a change that tested worse. Without a key, a template guide is built from the same numbers.
+5. The reasoning model (Neon) writes the **advice guide** from those numbers: the most prevalent hazards, what staff do when each happens, prevention ranked by measured effect, what to watch for. It is told never to recommend a change that tested worse. Without the server, a template guide is built from the same numbers.
+
+Steps 3 and 5 call Gemini **on the server** (`server/agent.py`, endpoints `/advisor/propose` and `/advisor/guide`), never from the browser.
+
+### Assistant chat (the agent)
+
+The **Assistant** panel connects to the server agent when the page runs on the organizer's laptop (port 8765) and the server is up on port 8000. Each question goes to `/agent/ask` with a snapshot of the twin on screen (rooms, head counts, locked doors). Gemini 4 Hydrogen answers by calling simulation tools itself: `get_world_summary`, `run_scenario` (fire, fall, crush, blocked exit), `run_sweep`, `test_changes`, and `highlight_opening`, `suggest`, `show_replay` for the map. Every number in an answer comes from a tool result. Progress shows in the panel header and in Activity; a replay the agent asks for starts in the twin. Measured on the Malin (Gemini) preset: "what happens if a fire starts in the Event Auditorium?" about 8 s; "what is the biggest risk and what should I change?" (sweep + tests) about 28 s.
 
 **Agent thoughts** shows each step: the loop's own steps (`Agent`), each measured result (`Sim`) and the models' thought summaries as they stream. Click a scenario row to replay it in 2D / 3D. **Copy** puts the guide on the clipboard as Markdown. Timing measured on the Malin (Gemini) preset with 24 scenarios: runs + tests about 8 s, Hydrogen proposals about 6 s, Neon guide about 75 s (its thoughts stream meanwhile).
 
