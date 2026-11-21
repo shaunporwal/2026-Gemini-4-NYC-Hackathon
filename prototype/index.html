@@ -11,6 +11,9 @@
   <div class="brand"><span class="brandmark" aria-hidden="true">↗</span><div><h1>Evacuation Twin</h1><span>Venue intelligence</span></div></div>
   <nav id="pages" aria-label="Page" hidden><a href="/camera">Camera</a><a class="on" aria-current="page">Twin</a></nav>
   <select id="preset" aria-label="Layout"></select>
+  <button id="addPlan" title="Upload a floor plan (PDF or picture). Gemini builds the twin from it.">+ Floor plan</button>
+  <input id="planFile" type="file" accept="image/*,application/pdf" hidden>
+  <button id="delPlan" class="quiet" hidden title="Delete this uploaded floor plan">Delete</button>
   <span id="feedState" class="connection">Connecting cameras…</span>
   <button id="setup" class="quiet">Settings</button>
 </header>
