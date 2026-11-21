@@ -9,10 +9,9 @@
   const KEY_PAN = 0.06;              // one key press moves the view this share of the camera's distance
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
-    sky: 0x0e1116, floor: 0x3a4150, wall: 0xb8bcc6, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
-    route: 0x5ad1ff, queued: 0xb6ef69, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
+    sky: 0x1c2420, floor: 0xb5b5a1, wall: 0xe0decb, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
+    route: 0x529e9a, queued: 0xe99f60, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
   };
-  const PERSON = { bodyH: 1.1, bodyW: 0.42, head: 0.34 };
   /* Furniture from layout.objects: [height in m, share of the cell that the voxel fills]. */
   const OBJECT = {
     table: [0.75, 0.96], desk: [0.75, 0.96], chair: [0.45, 0.6], sofa: [0.55, 0.92], counter: [1.0, 1], bar: [1.1, 1],
@@ -21,7 +20,7 @@
   const HEX = /^#[0-9a-f]{6}$/i;
   const hex = (v, d) => (typeof v === 'string' && HEX.test(v) ? parseInt(v.slice(1), 16) : d);
   /* Small fixed shade per cell, so flat areas read as blocks. */
-  const shade = (x, y) => 0.9 + 0.1 * (((x * 73856093) ^ (y * 19349663)) >>> 0) % 7 / 6;
+  const shade = (x, y) => 0.96 + 0.04 * ((((x * 73856093) ^ (y * 19349663)) >>> 0) % 7) / 6;
 
   function create(canvas, wrap) {
     const renderer = new T.WebGLRenderer({ canvas, antialias: true });
@@ -43,7 +42,7 @@
     window.addEventListener('keydown', ev => {
       const step = KEY_STEP[ev.code], at = ev.target;
       if (!step || canvas.hidden || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-      if (at && at.closest && at.closest('input, select, textarea, dialog, .strip')) return;   // typing, or stepping through saved frames
+      if (at && at.closest && at.closest('input, select, textarea, button, dialog, .strip')) return;   // typing, or stepping through saved frames
       ev.preventDefault();
       const ahead = new T.Vector3().subVectors(controls.target, camera.position).setY(0);
       if (ahead.lengthSq() < 1e-6) ahead.set(0, 0, -1);             // looking straight down: "up" is north
@@ -57,7 +56,12 @@
     const m4 = new T.Matrix4(), col = new T.Color();
     const raycaster = new T.Raycaster(), floorPlane = new T.Plane(new T.Vector3(0, 1, 0), 0);
     let group = null, built = null, size = '';
-    let openings, fire, smoke, bodies, heads;
+    let openings, fire, smoke, bodies, heads, limbs, walls, heat;
+    const crowd = window.CrowdVisual.create();
+    const sphere = new T.SphereGeometry(0.5, 8, 6);
+    const rootMatrix = new T.Matrix4(), partMatrix = new T.Matrix4();
+    const rotation = new T.Quaternion(), position = new T.Vector3(), scale = new T.Vector3();
+    const shirts = [0x467e86, 0x9b785f, 0x6f86a0, 0x678577, 0xa78c62, 0x9c787e];
     let down = null;
     canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });
 
@@ -68,8 +72,8 @@
     outline.visible = false;
     scene.add(outline);
 
-    function instanced(count, opts) {
-      const mesh = new T.InstancedMesh(box, new T.MeshLambertMaterial(Object.assign({ color: 0xffffff }, opts)), Math.max(1, count));
+    function instanced(count, opts, geometry = box) {
+      const mesh = new T.InstancedMesh(geometry, new T.MeshLambertMaterial(Object.assign({ color: 0xffffff }, opts)), Math.max(1, count));
       mesh.count = 0;
       mesh.frustumCulled = false;
       group.add(mesh);
@@ -94,13 +98,13 @@
       group = new T.Group();
       scene.add(group);
       const { W, H, N } = sim, L = sim.L, wallColor = hex(L.wallColor, COLOR.wall);
-      const floors = instanced(N), walls = instanced(N);
+      const floors = instanced(N); walls = instanced(N);
       let nf = 0, nw = 0;
       for (let i = 0; i < N; i++) {
         if (!sim.covered[i]) continue;
-        const x = i % W, y = (i / W) | 0, room = sim.roomOf[i] >= 0 ? L.rooms[sim.roomOf[i]] : null;
+        const x = i % W, y = (i / W) | 0;
         if (sim.type[i] === F.WALL && sim.tagOf[i] < 0) put(walls, nw++, x, y, 0, WALL_H, 1, 1, wallColor, shade(x, y));
-        else put(floors, nf++, x, y, 0, FLOOR_T, 1, 1, hex(room && room.color, COLOR.floor), shade(x, y));
+        else put(floors, nf++, x, y, 0, FLOOR_T, 1, 1, COLOR.floor, shade(x, y));
       }
       done(floors, nf); done(walls, nw);
 
@@ -115,7 +119,9 @@
       fire = instanced(N, { emissive: 0xff5a00, emissiveIntensity: 0.6 });
       smoke = instanced(N, { transparent: true, opacity: 0.5, depthWrite: false });
       bodies = instanced(sim.people.length);
-      heads = instanced(sim.people.length);
+      heads = instanced(sim.people.length, {}, sphere);
+      limbs = instanced(sim.people.length * 4);
+      heat = instanced(N, { transparent: true, opacity: 0.65, depthWrite: false });
 
       built = sim;
     }
@@ -123,7 +129,10 @@
     /* Put the whole building in view, seen from the south at TILT above the floor. */
     function frameCamera(W, H) {
       const half = Math.tan(camera.fov * Math.PI / 360);
-      const d = Math.max(W * 0.6 / (half * camera.aspect), H * 0.7 / half);
+      // Include the near edge’s perspective depth, with room for labels and people.
+      const nearDepth = H / 2 * Math.cos(TILT);
+      const d = 1.12 * Math.max(W / (2 * half * camera.aspect) + nearDepth,
+        H / 2 * Math.sin(TILT) / half + nearDepth);
       camera.position.set(W / 2, d * Math.sin(TILT), H / 2 + d * Math.cos(TILT));
       controls.target.set(W / 2, 0, H / 2);
       controls.update();
@@ -183,26 +192,62 @@
       }
       done(fire, nf); done(smoke, ns);
 
-      let np = 0;
-      for (const p of sim.people) {
-        if (p.state === F.OUT) continue;
-        const x = p.i % W, y = (p.i / W) | 0, isDown = p.state === F.DOWN;
-        const color = isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : COLOR.route;
-        if (isDown) {   // lying on the floor
-          put(bodies, np, x, y, FLOOR_T, PERSON.bodyW, PERSON.bodyH * 0.8, PERSON.bodyW, color);
-          put(heads, np++, x, y, FLOOR_T, 0.01, 0.01, 0.01, COLOR.head);
-        } else {
-          put(bodies, np, x, y, FLOOR_T, PERSON.bodyH, PERSON.bodyW, PERSON.bodyW, color);
-          put(heads, np++, x, y, FLOOR_T + PERSON.bodyH, PERSON.head, PERSON.head, PERSON.head, p.knowsSecond ? 0xc4a0ff : COLOR.head);
+      walls.scale.y = extra?.cutaway ? 0.35 : 1;
+      const visual = crowd.update(sim, t, extra || {});
+      let nh = 0;
+      if (extra?.congestion) {
+        for (let i = 0; i < N; i++) {
+          if (!sim.covered[i] || sim.solid(i) || sim.fire[i]) continue;
+          const count = visual.crowding[i], waiting = visual.queued[i];
+          if (count < 3 && !waiting) continue;
+          const color = waiting >= 2 || count >= 6 ? 0xdf7667 : count >= 4 ? 0xe5a56c : 0xdbca79;
+          put(heat, nh++, i % W, Math.floor(i / W), FLOOR_T + 0.015, 0.015, 0.97, 0.97, color);
         }
       }
-      done(bodies, np); done(heads, np);
+      done(heat, nh);
+
+      // Articulated figures follow engine positions. Animation never changes their route or speed.
+      function part(mesh, index, x, y, z, sx, sy, sz, pitch, color) {
+        position.set(x, y, z); scale.set(sx, sy, sz);
+        rotation.setFromAxisAngle(new T.Vector3(1, 0, 0), pitch);
+        partMatrix.compose(position, rotation, scale);
+        m4.multiplyMatrices(rootMatrix, partMatrix);
+        mesh.setMatrixAt(index, m4); mesh.setColorAt(index, col.setHex(color));
+      }
+      let np = 0, nl = 0;
+      sim.people.forEach((p, index) => {
+        if (p.state === F.OUT) return;
+        const track = visual.tracks[index], isDown = p.state === F.DOWN;
+        const color = isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : shirts[index % shirts.length];
+        rotation.setFromAxisAngle(new T.Vector3(0, 1, 0), track.heading);
+        rootMatrix.compose(position.set(track.x + 0.5, FLOOR_T, track.y + 0.5), rotation, scale.set(1, 1, 1));
+        if (isDown) {
+          part(bodies, np, 0, 0.17, 0, 0.38, 0.25, 0.9, 0, color);
+          part(heads, np, 0, 0.18, 0.6, 0.29, 0.29, 0.29, 0, COLOR.head);
+        } else {
+          const stride = p.queueOpening >= 0 ? 0 : track.phase;
+          part(bodies, np, 0, 0.88, 0, 0.42, 0.57, 0.28, 0, color);
+          part(heads, np, 0, 1.35, 0, 0.33, 0.36, 0.33, 0, p.knowsSecond ? 0xc4a0ff : COLOR.head);
+          part(limbs, nl++, -0.12, 0.31, stride * 0.15, 0.15, 0.57, 0.17, stride, 0x34464b);
+          part(limbs, nl++, 0.12, 0.31, -stride * 0.15, 0.15, 0.57, 0.17, -stride, 0x34464b);
+          part(limbs, nl++, -0.29, 0.84, -stride * 0.15, 0.13, 0.49, 0.14, -stride, color);
+          part(limbs, nl++, 0.29, 0.84, stride * 0.15, 0.13, 0.49, 0.14, stride, color);
+        }
+        np++;
+      });
+      done(bodies, np); done(heads, np); done(limbs, nl);
 
       controls.update();
       renderer.render(scene, camera);
     }
 
-    return { fit, cellAt, draw };
+    function focusOpening(sim, index) {
+      const opening = sim.openings[index].ref;
+      const target = new T.Vector3(opening.x + opening.w / 2, 0, opening.y + opening.h / 2);
+      const offset = camera.position.clone().sub(controls.target).normalize().multiplyScalar(22);
+      controls.target.copy(target); camera.position.copy(target).add(offset); controls.update();
+    }
+    return { fit, cellAt, draw, focusOpening, home: sim => frameCamera(sim.W, sim.H) };
   }
 
   window.FireRender3D = { create };

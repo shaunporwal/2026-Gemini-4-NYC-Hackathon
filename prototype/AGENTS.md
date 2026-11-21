@@ -27,10 +27,12 @@ Hackathon project (Gemini 4 NYC, 2026-11-21). One day. Speed to a working stage 
 | `render3d.js` | Draw the same sim as 3D voxels (three.js). Same interface as `render.js` | State changes, network |
 | `vendor/three.bundle.js` | three.js 0.170 + OrbitControls as one classic script (built with esbuild from `web/node_modules`). The only package; do not edit | Our code |
 | `gemini.js` | Prompts + Gemini REST call | Sim logic, DOM |
+| `crowdvisual.js` | Renderer-only movement interpolation and local crowding | Simulation mutations, network |
+| `assistant.js` | Agent sidebar presentation and injectable service adapter | Model requests, physics |
 | `app.js` | Wire DOM events to the modules | Physics, prompts |
 | `index.html`, `style.css` | Markup, look | Logic |
 
 ## Design rule
 
-Physics and routing are code. The LLM reads (floor plan, photo or video → layout), speaks (PA text) and proposes (fixes).
+Physics and routing are code. The LLM reads (floor plan, photo or video → layout), proposes (fixes).
 The LLM does not decide: `sim.js` scores each proposal with the same seed and the same fire.
