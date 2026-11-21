@@ -5,7 +5,7 @@
   const $ = id => document.getElementById(id);
   const SEED = 7;
   const KEY_STORE = 'fireTwinGeminiKey', INFORMED_STORE = 'fireTwinInformed';
-  const PA_IDLE = 'Click the floor to start a fire. Click a door or exit to lock or unlock it.';
+  const STATUS_IDLE = 'Select an opening to inspect it, or choose Simulate fire to rehearse an evacuation.';
   const FIX_WAIT_S = 20;   // Find fix never waits longer than this for Gemini
   const DETAIL_S = 12;   // while its phone streams, a room is rebuilt from the camera this often
   const DETAIL_ROOMS = 3;   // rooms that Gemini reads at the same time (1 for each phone)
@@ -14,11 +14,11 @@
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
-  const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
+  const STATS = [['out', 'Evacuated'], ['trapped', 'No route'], ['down', 'Down (model)'], ['seconds', 'Simulated seconds']];
 
   /* plan = the layout as loaded (floor plan only). layout = the same building after the phones changed it.
    * seen = the rooms a phone changed. Every run on `layout` is also run on `plan`: the gap is what the cameras add. */
-  const state = { layout: null, plan: null, seen: new Set(), frozen: false, guessed: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
+  const state = { layout: null, plan: null, seen: new Set(), frozen: false, guessed: null, label: '', sim: null, running: false, lastIgn: [], fix: null, acc: 0, last: 0 };
   /* Three views of the same sim: 2D canvas, 3D voxels, live phone cameras. Same interface; each starts on first use. */
   const VIEWS = {
     '2d': { canvas: 'cv', make: window.FireRender },
@@ -30,6 +30,7 @@
   };
   let view = null;
   let comparison = null;
+  let placingFire = false, snapshotAt = null, lastUiSecond = -1;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value, crowd: $('crowd').checked });
   const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
@@ -43,12 +44,7 @@
 
   function log(msg) { $('log').prepend(el('div', new Date().toLocaleTimeString() + '  ' + msg)); }
 
-  function say(text) {
-    $('pa').textContent = text;
-    if (!$('voice').checked || !window.speechSynthesis) return;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-  }
+  function setStatus(text) { $('pa').textContent = text; }
 
   /* One row format for both tables (runs, fix candidates). */
   function addRow(tbody, label, res, note) {
@@ -107,13 +103,15 @@
 
   /* New sim on the current layout. With ignitions: replay that fire. events/extra: an Advisor scenario. */
   function reset(ignitions, events, extra) {
+    if (comparison?.layout === state.layout) state.label = comparison.originalLabel;
     comparison = null;
     $('awarenessResults').hidden = true;
-    state.annSeq++;
+    placingFire = false;
+    snapshotAt = ignitions?.length || events?.length ? new Date() : null;
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions, events }, extra));
     state.running = !!((ignitions && ignitions.length) || (events && events.length));
-    state.annKey = ''; state.acc = 0;
-    if (!state.running) $('pa').textContent = PA_IDLE;   // a fresh sim: clear the last run's announcement (no speech)
+    state.acc = 0;
+    if (!state.running) $('pa').textContent = STATUS_IDLE;   // a fresh sim: restore the venue instructions
     view.fit(state.sim);
     buildQueueMenu(state.sim);
     showLabel();
@@ -187,7 +185,7 @@
     } catch (e) { log('Room read: ' + e.message); } finally { detail.busy.delete(roomName); }
   }
 
-  /* One camera update. Before the fire: its head count goes into the twin. A camera that sees fire starts the fire. */
+  /* Camera observations update the idle venue. Hazard observations warn; only an explicit rehearsal starts fire. */
   function onObservation(o) {
     const room = state.layout.rooms.find(r => r.name === o.cameraId);
     if (!room) return;
@@ -198,10 +196,11 @@
     showLive();
     if (state.frozen) return;   // frozen: the feed still shows, the twin keeps its last capture
     const sim = state.sim, idle = sim.alarmTick < 0;
-    const moved = o.pose && JSON.stringify(o.pose) !== JSON.stringify(room.view || null) && o.peopleCount > 0;
+    const views = o.poses && o.poses.length ? o.poses : o.pose ? [o.pose] : null;   // every phone that films this room now
+    const moved = views && JSON.stringify(views) !== JSON.stringify(room.views || null) && o.peopleCount > 0;
     if (idle && o.stream && o.stream.ok && (o.peopleCount !== room.people || moved)) {
       room.people = o.peopleCount;
-      if (o.pose) room.view = { x: o.pose.x, y: o.pose.y, yaw: o.pose.yaw };   // the sim puts the counted people in this view
+      if (views) room.views = views;   // the sim puts the counted people in these views
       $('json').value = JSON.stringify(state.layout);
       informed(room.name);
       reset();
@@ -209,21 +208,8 @@
     const cause = o.events.includes('fire') ? 'Camera in ' + room.name + ' sees fire.'
       : o.events.includes('alarm') ? 'Microphone in ' + room.name + ' hears an alarm.'
       : o.events.includes('screaming') ? 'Microphone in ' + room.name + ' hears screaming.' : '';
-    if (idle && $('autofire').checked && cause) {
-      const spot = fireSpot(room);
-      if (spot && state.sim.ignite(spot.x, spot.y)) { state.running = true; log(cause + ' Fire started there.'); }
-    } else if (idle) rebuildRoom(room.name);
-  }
-
-  /* A floor cell of the room to start a fire on: the one nearest its centre that can burn. */
-  function fireSpot(room) {
-    const sim = state.sim, cx = room.x + room.w / 2, cy = room.y + room.h / 2;
-    let best = null, bestD = Infinity;
-    for (let y = room.y + 1; y < room.y + room.h - 1; y++) for (let x = room.x + 1; x < room.x + room.w - 1; x++) {
-      const d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2;
-      if (d < bestD && !sim.solid(y * sim.W + x)) { bestD = d; best = { x, y }; }
-    }
-    return best;
+    if (cause) log(cause + ' Review the camera observation.');
+    if (idle) rebuildRoom(room.name);
   }
 
   /* After a reload: bring back the twin that was on screen (its preset, and the phones' changes to it).
@@ -256,10 +242,15 @@
     view = v.view;
     document.querySelectorAll('#views button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
     $('hint3d').hidden = mode !== '3d';
+    $('mapLegend').hidden = mode === 'live';
+    $('homeView').disabled = mode === 'live';
     if (state.sim) view.fit(state.sim);
   }
 
-  function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
+  function showLabel() {
+    $('layoutName').textContent = state.layout.name + ' · ' + state.label;
+    $('mapTitle').textContent = state.layout.name.replace(/\s*\(.*$/, '');
+  }
 
   /* Keep the camera-informed layout across a reload of this tab (the phones' work must not be lost on stage). */
   function remember() {
@@ -317,6 +308,7 @@
     const s = new F.Sim(L).stats();
     if (!s.total && !restored && !L.liveOnly) throw new Error('layout has no people');   // an emptied twin (only what phones have seen) is allowed
     if (s.trapped) log('Warning: ' + s.trapped + ' of ' + s.total + ' people have no route to an exit.');
+    window.TwinAssistant.clear();
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     state.plan = restored ? restored.plan : F.clone(L);
     state.seen = new Set(restored ? restored.seen : []);
@@ -339,7 +331,7 @@
     live.clear(); showLive();
     syncFeed();
     reset();
-    say(PA_IDLE);
+    setStatus(STATUS_IDLE);
   }
 
   /* The run is over. If phones changed the twin, run the SAME fire on the plan-only twin too:
@@ -351,27 +343,13 @@
     state.lastIgn = state.sim.ignitions.slice();
     if (!compare) {
       addRow($('runs'), state.label, r);
-      return say('Run complete. ' + r.out + ' out, ' + r.lost + ' lost.');
+      return setStatus('Run complete. ' + r.out + ' out, ' + r.lost + ' lost.');
     }
     const p = F.run(state.plan, state.lastIgn, simOpts()), n = state.seen.size;
     addRow($('runs'), 'Floor plan only', p);
     addRow($('runs'), 'With phones (' + n + ' room' + (n > 1 ? 's' : '') + ')', r, 'Same fire. Phones changed: ' + [...state.seen].join(', ') + '.');
     log('Same fire: the floor plan alone predicts ' + p.lost + ' lost of ' + p.total + '. With the phones: ' + r.lost + ' lost of ' + r.total + '.');
-    say('Run complete. ' + r.lost + ' lost. The floor plan alone predicted ' + p.lost + '.');
-  }
-
-  /* PA announcement when the set of blocked exits changes (and at the first fire). */
-  async function checkAnnounce() {
-    const st = state.sim.status(), key = st.blocked.join() + '|' + st.open.join();
-    if (key === state.annKey) return;
-    state.annKey = key;
-    const seq = ++state.annSeq;
-    let text = G.fallbackAnnouncement(st);
-    $('pa').textContent = text;   // on screen at once; Gemini's wording replaces it (and is spoken) when it arrives
-    if ($('gpa').checked && cfg().key) {
-      try { text = await G.announce(cfg(), st); } catch (e) { log('PA: ' + e.message); }
-    }
-    if (seq === state.annSeq) say(text);
+    setStatus('Run complete. ' + r.lost + ' lost. The floor plan alone predicted ' + p.lost + '.');
   }
 
   /* Candidates come from search (each locked opening) and from Gemini. The sim scores all of them. */
@@ -419,7 +397,7 @@
     if (!state.fix) return;
     state.layout = state.fix.layout; state.label = state.fix.label;
     reset(state.fix.ign);
-    say('Fix applied: ' + state.label + '. Same fire, new run.');
+    setStatus('Fix applied: ' + state.label + '. Same fire, new run.');
   }
 
   function startComparison() {
@@ -435,14 +413,15 @@
       return log('Use a cue time from 0 to 120 seconds and reception from 0 to 100%.');
     const options = Object.assign(simOpts(), { ignitions, horizonSeconds: 120 });
     comparison = {
+      layout: state.layout, originalLabel: comparison?.originalLabel || state.label,
       baseline: new F.Sim(F.clone(state.layout), Object.assign({}, options,
         { awareness: { familiar, second, cueSeconds: Infinity, reception: 0 } })),
       guided: new F.Sim(F.clone(state.layout), Object.assign({}, options,
         { awareness: { familiar, second, cueSeconds, reception } }))
     };
-    state.annSeq++;
     state.acc = 0;
     state.running = true;
+    snapshotAt = new Date();
     state.lastIgn = ignitions;
     $('awarenessResults').hidden = false;
     $('awarenessConfig').textContent = 'Seed ' + SEED + ' · ' + familiar + ' familiar · cue for ' + second
@@ -463,7 +442,7 @@
 
   function updateComparison() {
     const { baseline, guided } = comparison;
-    const tickKey = baseline.tick + '/' + guided.tick;
+    const tickKey = baseline.tick + '/' + guided.tick + '/' + state.running;
     if (comparison.lastTickKey === tickKey) return;
     comparison.lastTickKey = tickKey;
     const measure = sim => {
@@ -482,7 +461,7 @@
         return row;
       }));
     const complete = baseline.done && guided.done;
-    $('awarenessStatus').textContent = (complete ? 'Complete' : 'Running') + ' · '
+    $('awarenessStatus').textContent = (complete ? 'Complete' : state.running ? 'Running' : 'Paused') + ' · '
       + Math.max(baseline.tick, guided.tick) * F.DT + ' s · '
       + (guided.cueDelivered ? 'Announcement delivered to ' + guided.awarenessEvents.length + ' people.'
         : 'Announcement pending.');
@@ -498,20 +477,61 @@
     }
   }
 
+  function focusOpening(id) {
+    const index = state.sim.openings.findIndex(o => o.ref.id === id);
+    if (index < 0) return log('This opening is unavailable in the current layout.');
+    $('queueOpening').value = String(index);
+    updateQueues(state.sim);
+    window.TwinAssistant.showPanel('insightsPanel');
+    view.focusOpening?.(state.sim, index);
+  }
+
   function onCanvasClick(ev) {
-    if (comparison) return log('Use Reset to edit the room or start a different fire.');
     const sim = state.sim, c = view.cellAt(sim, ev);
     if (!c) return;
     const tag = sim.tagOf[c.i];
-    if (tag >= 0) {
+    if (!placingFire && tag >= 0 && ($('interaction').value === 'inspect' || comparison || sim.alarmTick >= 0)) {
+      return focusOpening(sim.openings[tag].ref.id);
+    }
+    if (comparison || sim.done) return log('Return to venue to edit the room or start a new scenario.');
+    if (!placingFire && tag >= 0 && $('interaction').value === 'edit') {
       const ref = sim.openings[tag].ref;
       ref.locked = !ref.locked; sim.refreshOpening(tag);
-      const same = F.openingsOf(state.plan).find(o => o.id === ref.id);   // a door a person locks is locked in both twins
+      const same = F.openingsOf(state.plan).find(o => o.id === ref.id);
       if (same) same.locked = ref.locked;
       remember();
       state.label = 'Manual: ' + ref.id + (ref.locked ? ' locked' : ' unlocked'); showLabel();
-    } else if (sim.done) log('Run is complete. Use Reset or Replay.');
-    else if (sim.ignite(c.x, c.y)) state.running = true;
+    } else if (placingFire && sim.ignite(c.x, c.y)) {
+      snapshotAt = new Date(); placingFire = false; state.running = true;
+      setStatus('Rehearsal running. Inspect an opening to see waiting time and smoke exposure.');
+    } else if (!placingFire) {
+      const room = state.layout.rooms[sim.roomOf[c.i]];
+      if (room) $('pa').textContent = room.name + ' · ' + room.people + ' people in the room model.';
+    }
+  }
+
+  function updateWorkspace(sim, t) {
+    const rehearsal = sim.alarmTick >= 0 || !!comparison;
+    $('worldMode').textContent = rehearsal ? 'SIMULATION REPLAY' : state.frozen ? 'FROZEN VENUE' : 'VENUE VIEW';
+    $('sceneStatus').textContent = rehearsal ? 'Simulated event · ' + (sim.tick * F.DT).toFixed(1) + ' s' : state.seen.size ? 'Camera-informed venue' : 'Preset venue';
+    $('runLabel').textContent = placingFire ? 'Choose a floor location to start' : rehearsal ? comparison ? 'Matched exit-awareness replay' : state.running ? 'Evacuation in progress' : sim.done ? 'Scenario complete' : 'Simulation paused' : 'Explore the venue';
+    $('snapshotLabel').textContent = rehearsal && snapshotAt ? 'Snapshot captured ' + snapshotAt.toLocaleTimeString() : 'Inspect an opening or simulate a fire';
+    $('placeFire').textContent = placingFire ? 'Cancel placement' : 'Simulate fire';
+    $('placeFire').disabled = rehearsal;
+    $('pause').disabled = !rehearsal || (comparison ? comparison.baseline.done && comparison.guided.done : sim.done);
+    $('pause').textContent = state.running ? 'Pause' : 'Play';
+    $('replay').disabled = !currentFire().length;
+    $('speedLabel').textContent = (+$('speed').value * F.DT) + '×';
+    $('population').textContent = sim.people.length + ' people';
+    $('placementNote').textContent = state.seen.size ? 'Camera counts · simulated placement' : 'Preset occupancy · simulated placement';
+    if (Math.floor(t / 1000) === lastUiSecond) return;
+    lastUiSecond = Math.floor(t / 1000);
+    const blocked = sim.openings.filter(o => o.kind === 'exit' && o.ref.locked).length;
+    const latest = Math.max(0, ...[...live.values()].map(o => o.stream?.lastFrame || 0));
+    const age = latest ? Math.max(0, Math.floor(Date.now() / 1000 - latest)) : null;
+    $('worldSummary').textContent = sim.people.length + ' modeled people across ' + state.layout.rooms.length + ' rooms. '
+      + blocked + ' exits marked locked or blocked. '
+      + (age === null ? 'Camera observations have yet to arrive.' : 'Latest camera frame ' + age + ' s ago.');
   }
 
   function frame(t) {
@@ -527,13 +547,13 @@
     } else if (state.running && !sim.done) {
       state.acc += dt * +$('speed').value;
       for (let n = 0; state.acc >= 1 && n < 40 && !sim.done; n++, state.acc--) sim.step();
-      checkAnnounce();
       if (sim.done) onDone();
     }
     if (queueTick !== sim.tick) updateQueues(sim);
-    view.draw(sim, t, { marks, tracked: trackedOpening, phones: [...live.values()].map(o => o.pose).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
+    view.draw(sim, t, { running: state.running, stepMs: 1000 / +$('speed').value, congestion: $('congestion').checked, cutaway: $('cutaway').checked, marks, tracked: trackedOpening, phones: [...live.values()].flatMap(o => (o.poses && o.poses.length ? o.poses : [o.pose])).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
+    updateWorkspace(sim, t);
     requestAnimationFrame(frame);
   }
 
@@ -549,6 +569,12 @@
     Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
     document.querySelectorAll('#views button').forEach(b => b.addEventListener('click', guarded('View', () => setView(b.dataset.view))));
     on('queueOpening', 'change', () => updateQueues(state.sim));
+    on('placeFire', 'click', () => {
+      if (!$('liveView').hidden) setView('3d');
+      placingFire = !placingFire;
+    });
+    on('homeView', 'click', () => { view.home?.(state.sim); view.fit(state.sim); });
+    window.addEventListener('twin:focus-opening', event => focusOpening(event.detail?.id));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('freeze', 'click', () => setFrozen(!state.frozen));
     on('liveOnly', 'change', () => setLiveOnly($('liveOnly').checked));
@@ -557,6 +583,7 @@
       state.running = !state.running && (comparison
         ? !(comparison.baseline.done && comparison.guided.done)
         : state.sim.alarmTick >= 0 && !state.sim.done);
+      if (comparison) updateComparison();
     });
     on('compareAwareness', 'click', guarded('Comparison', startComparison));
     on('awarenessView', 'change', selectComparisonView);
@@ -593,7 +620,8 @@
     $('key').value = sessionStorage.getItem(KEY_STORE) || '';
     on('key', 'input', keyChanged);
     keyChanged();
-    setView('2d');
+    $('preset').value = 'malinGemini';
+    setView('3d');
     setInterval(showLive, 1000);
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     // Read the remembered twin BEFORE the default layout loads: loading a layout overwrites what is remembered.

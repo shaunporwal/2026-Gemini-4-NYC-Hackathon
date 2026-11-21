@@ -3,7 +3,7 @@
   'use strict';
   const F = window.FireSim;
   const CELL = { [F.FLOOR]: '#171b22', [F.WALL]: '#465064', [F.LOCKED]: '#d0342c', [F.DOOR]: '#222a36', [F.EXIT]: '#2ecc71' };
-  const OUTSIDE = '#0c0f14', FURNITURE = '#7a5a3a';
+  const OUTSIDE = '#1c2420', FURNITURE = '#7a5a3a';
   const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626', fallen: '#ffb020' };
   const HEAT = { lost: [255, 79, 79], falls: [255, 176, 32] };   // risk map: where people were lost, where they fell
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
@@ -27,6 +27,7 @@
 
   function create(canvas, wrap) {
     const ctx = canvas.getContext('2d');
+    const crowd = window.CrowdVisual.create();
     let cs = 12;   // cell size, device px
     let dpr = 1, shown = null;
 
@@ -130,6 +131,21 @@
       }
       shown = sim;
       if (extra && extra.heat) riskOverlay(sim, extra.heat);
+      const visual = crowd.update(sim, t, extra || {});
+      if (extra?.congestion) {
+        for (let i = 0; i < N; i++) {
+          const count = visual.crowding[i], waiting = visual.queued[i];
+          if (!sim.covered[i] || sim.solid(i) || sim.fire[i] || (count < 3 && !waiting)) continue;
+          ctx.fillStyle = waiting >= 2 || count >= 6 ? '#df766799' : count >= 4 ? '#e5a56c88' : '#dbca7966';
+          ctx.fillRect(i % W * cs, Math.floor(i / W) * cs, cs, cs);
+        }
+      }
+      const tracked = sim.openings[extra?.tracked];
+      if (tracked) {
+        const o = tracked.ref;
+        ctx.strokeStyle = '#f2ad70'; ctx.lineWidth = 2 * dpr;
+        ctx.strokeRect(o.x * cs - 2, o.y * cs - 2, o.w * cs + 4, o.h * cs + 4);
+      }
       for (const o of sim.openings) {
         if (o.kind !== 'exit') continue;
         const e = o.ref, cx = e.x + e.w / 2, cy = e.y + e.h / 2;
@@ -137,14 +153,18 @@
         const dx = open(e.x + e.w, e.y) ? 1.7 : open(e.x - 1, e.y) ? -1.7 : 0, dy = open(e.x, e.y + e.h) ? 1.4 : open(e.x, e.y - 1) ? -1.4 : 0;
         text(e.id, (cx + dx) * cs, (cy + dy) * cs, Math.max(EXIT_PX * dpr, cs), e.locked ? '#ff8a84' : '#7dffb0');
       }
-      for (const p of extra && extra.heat ? [] : sim.people) {
-        if (p.state === F.OUT) continue;
-        const down = p.state === F.DOWN || p.state === F.INJURED;
-        ctx.fillStyle = p.state === F.INJURED ? PERSON.fallen : down ? PERSON.down : sim.trapped(p) ? PERSON.trapped : PERSON.route;
-        ctx.beginPath();
-        ctx.arc((p.i % W + 0.5) * cs, (((p.i / W) | 0) + 0.5) * cs, cs * (down ? 0.28 : 0.38), 0, 6.283);
-        ctx.fill();
-      }
+      sim.people.forEach((p, index) => {
+        if (p.state === F.OUT || (extra && extra.heat)) return;   // the risk map hides people
+        const down = p.state === F.DOWN || p.state === F.INJURED, track = visual.tracks[index];
+        ctx.save();
+        ctx.translate((track.x + 0.5) * cs, (track.y + 0.5) * cs);
+        ctx.rotate(-track.heading);
+        ctx.fillStyle = p.state === F.INJURED ? PERSON.fallen : down ? PERSON.down : p.queueOpening >= 0 ? '#e99f60' : sim.trapped(p) ? PERSON.trapped : '#77b5b0';
+        ctx.beginPath(); ctx.ellipse(0, 0, cs * 0.32, cs * 0.23, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.knowsSecond ? '#c4a0ff' : '#f2c697';
+        ctx.beginPath(); ctx.arc(0, cs * 0.09, cs * 0.17, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
       phones(extra && extra.phones);
       flash(sim, t, marks);
       roomLabels(sim);
