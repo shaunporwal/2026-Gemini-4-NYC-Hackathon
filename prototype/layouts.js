@@ -88,7 +88,90 @@
     ]
   };
 
-  const api = { malin, demo };
+  /* The Malin Chelsea as Gemini read it from docs/The_Malin_Chelsea_Floor_Plan.pdf (gemini-4-hydrogen,
+   * 2026-11-21, about 105 s). Not edited. Stage fallback for the live floor plan step. Exits E3, E4 and
+   * all head counts are Gemini's reading: NOT checked against the building. */
+  const malinGemini = {
+    name: "The Malin Chelsea (Gemini, from the floor plan PDF)",
+    width: 80, height: 46,
+    rooms: [
+      {"name": "Reception & West Lounge", "x": 0, "y": 4, "w": 12, "h": 17, "people": 18},
+      {"name": "Bricken Office (10)", "x": 11, "y": 4, "w": 7, "h": 5, "people": 4},
+      {"name": "Abbott Office (9)", "x": 11, "y": 8, "w": 7, "h": 5, "people": 4},
+      {"name": "Blum Office (8)", "x": 11, "y": 12, "w": 7, "h": 6, "people": 5},
+      {"name": "West Booth Lounge", "x": 17, "y": 4, "w": 7, "h": 14, "people": 16},
+      {"name": "Arsenal Office (11)", "x": 23, "y": 0, "w": 7, "h": 4, "people": 3},
+      {"name": "Lurye Office (12)", "x": 23, "y": 3, "w": 7, "h": 5, "people": 3},
+      {"name": "Weller Office (13)", "x": 23, "y": 7, "w": 7, "h": 4, "people": 3},
+      {"name": "Bradley Office (14)", "x": 23, "y": 10, "w": 7, "h": 4, "people": 3},
+      {"name": "Wurts Office (15)", "x": 23, "y": 13, "w": 7, "h": 5, "people": 3},
+      {"name": "West-Central Corridor", "x": 11, "y": 17, "w": 24, "h": 5, "people": 4},
+      {"name": "Knickerbocker Room (2)", "x": 11, "y": 21, "w": 8, "h": 5, "people": 10},
+      {"name": "Upper Bathrooms (17)", "x": 18, "y": 21, "w": 9, "h": 5, "people": 4},
+      {"name": "South Bathroom & Core (17)", "x": 26, "y": 21, "w": 5, "h": 10, "people": 2},
+      {"name": "Central Lounge & Dedicated Desks", "x": 34, "y": 17, "w": 14, "h": 12, "people": 24},
+      {"name": "Lefcourt Room (3)", "x": 35, "y": 28, "w": 4, "h": 5, "people": 6},
+      {"name": "Adler Room (4)", "x": 38, "y": 28, "w": 5, "h": 5, "people": 6},
+      {"name": "Kahn Room (5)", "x": 42, "y": 28, "w": 6, "h": 5, "people": 8},
+      {"name": "Kitchen & Bistro Lounge (16)", "x": 47, "y": 17, "w": 5, "h": 16, "people": 12},
+      {"name": "Phonebooths & South Lounge (19)", "x": 35, "y": 32, "w": 17, "h": 5, "people": 10},
+      {"name": "East Offices West", "x": 51, "y": 17, "w": 6, "h": 7, "people": 6},
+      {"name": "East Offices East", "x": 56, "y": 17, "w": 7, "h": 7, "people": 6},
+      {"name": "East Corridor", "x": 51, "y": 23, "w": 12, "h": 5, "people": 2},
+      {"name": "Wellness Room (18)", "x": 51, "y": 27, "w": 6, "h": 4, "people": 1},
+      {"name": "Event Bar & Pre-Function", "x": 62, "y": 17, "w": 18, "h": 11, "people": 20},
+      {"name": "Event Auditorium", "x": 60, "y": 27, "w": 20, "h": 12, "people": 80},
+      {"name": "Carnegie Room (6)", "x": 59, "y": 38, "w": 8, "h": 8, "people": 10},
+      {"name": "South Event Foyer", "x": 66, "y": 38, "w": 7, "h": 6, "people": 8},
+      {"name": "Penn Room (7)", "x": 72, "y": 38, "w": 8, "h": 8, "people": 12}
+    ],
+    doors: [
+      {"id": "D1", "x": 17, "y": 6, "w": 1, "h": 1, "locked": false},
+      {"id": "D2", "x": 17, "y": 10, "w": 1, "h": 1, "locked": false},
+      {"id": "D3", "x": 17, "y": 14, "w": 1, "h": 1, "locked": false},
+      {"id": "D4", "x": 26, "y": 3, "w": 1, "h": 1, "locked": false},
+      {"id": "D5", "x": 23, "y": 5, "w": 1, "h": 1, "locked": false},
+      {"id": "D6", "x": 23, "y": 8, "w": 1, "h": 1, "locked": false},
+      {"id": "D7", "x": 23, "y": 11, "w": 1, "h": 1, "locked": false},
+      {"id": "D8", "x": 23, "y": 15, "w": 1, "h": 1, "locked": false},
+      {"id": "D9", "x": 11, "y": 18, "w": 1, "h": 2, "locked": false},
+      {"id": "D10", "x": 19, "y": 17, "w": 2, "h": 1, "locked": false},
+      {"id": "D11", "x": 14, "y": 21, "w": 2, "h": 1, "locked": false},
+      {"id": "D12", "x": 21, "y": 21, "w": 2, "h": 1, "locked": false},
+      {"id": "D13", "x": 28, "y": 21, "w": 1, "h": 1, "locked": false},
+      {"id": "D14", "x": 34, "y": 18, "w": 1, "h": 2, "locked": false},
+      {"id": "D15", "x": 36, "y": 28, "w": 1, "h": 1, "locked": false},
+      {"id": "D16", "x": 40, "y": 28, "w": 1, "h": 1, "locked": false},
+      {"id": "D17", "x": 44, "y": 28, "w": 1, "h": 1, "locked": false},
+      {"id": "D18", "x": 47, "y": 20, "w": 1, "h": 4, "locked": false},
+      {"id": "D19", "x": 49, "y": 32, "w": 1, "h": 1, "locked": false},
+      {"id": "D20", "x": 51, "y": 24, "w": 1, "h": 2, "locked": false},
+      {"id": "D21", "x": 53, "y": 23, "w": 1, "h": 1, "locked": false},
+      {"id": "D22", "x": 59, "y": 23, "w": 1, "h": 1, "locked": false},
+      {"id": "D23", "x": 53, "y": 27, "w": 1, "h": 1, "locked": false},
+      {"id": "D24", "x": 62, "y": 24, "w": 1, "h": 2, "locked": false},
+      {"id": "D25", "x": 68, "y": 27, "w": 4, "h": 1, "locked": false},
+      {"id": "D26", "x": 68, "y": 38, "w": 3, "h": 1, "locked": false},
+      {"id": "D27", "x": 66, "y": 40, "w": 1, "h": 2, "locked": false},
+      {"id": "D28", "x": 72, "y": 40, "w": 1, "h": 2, "locked": false}
+    ],
+    exits: [
+      {"id": "E1", "name": "7th Ave Entrance", "x": 0, "y": 10, "w": 1, "h": 2, "locked": false},
+      {"id": "E2", "name": "26th St Entrance", "x": 68, "y": 43, "w": 3, "h": 1, "locked": false},
+      {"id": "E3", "name": "NW Stair Exit", "x": 0, "y": 6, "w": 1, "h": 2, "locked": false},
+      {"id": "E4", "name": "Central Core Fire Exit", "x": 27, "y": 30, "w": 2, "h": 1, "locked": false}
+    ],
+    notes: [
+      "Main west entrance and reception desk (1) located along 7th Ave.",
+      "Private offices (8-15) flank the central booth lounge in the northwest wing.",
+      "Dedicated desks, meeting rooms (3-5), kitchen (16), and phonebooths (19) occupy the center.",
+      "Four small private offices west of the event space were merged into two rooms.",
+      "Large event auditorium, bar area, Carnegie (6), and Penn (7) rooms form the east wing.",
+      "South entrance onto 26th St sits between Carnegie Room (6) and Penn Room (7)."
+    ]
+  };
+
+  const api = { malin, malinGemini, demo };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireLayouts = api;
 })(typeof window !== 'undefined' ? window : globalThis);

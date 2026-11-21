@@ -62,7 +62,7 @@
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
-    showSeen([]);
+    showSeen(G.notesOf(L));
     reset();
     say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
   }
@@ -184,7 +184,6 @@
       $('setupDlg').close();
       const L = await job(files, msg => log('Gemini: ' + msg));
       loadLayout(L);
-      showSeen(G.notesOf(L));
       log(what + ': layout loaded.');
     });
     on('media', 'change', fromGemini('New twin', (files, status) => G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status)));

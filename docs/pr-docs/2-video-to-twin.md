@@ -30,17 +30,21 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - [x] `gemini.js`: Files API upload + poll; `mediaPart` picks inline or upload
 - [x] `gemini.js`: prompts for video, plan + video, and update; `notes` in the schema
 - [x] `app.js`: wire both inputs; status line shows upload / processing / reading
-- [ ] Test with a real key: floor plan PDF -> twin (also proves model ID + endpoint)
+- [x] Test with a real key: floor plan PDF -> twin. `gemini-4-hydrogen`, about 105 s, valid layout: 29 rooms, 28 doors, 4 exits, 6 notes
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
-- [ ] Save the best result as a preset in `layouts.js` (stage fallback); replace invented exits X1, X2
+- [x] Gemini's floor plan result saved as preset `malinGemini` in `layouts.js` (stage fallback, with its notes)
+- [ ] Walk the venue: check exits E3 (NW stair) and E4 (central core) in `malinGemini`, and X1, X2 in `malin`
 - [x] Hackathon API resources found in email (2026-11-21): a hackathon Google account from Google DeepMind for ai.dev (credentials stay in email, never in the repo); models Argon, Carbon, Neon, Hydrogen
-- [ ] Sign in at ai.dev with the hackathon account (incognito window) and create an API key
+- [x] Hackathon account signed in at AI Studio; its "Workshop API key" is in use (project on Tier 3)
 
 ## Known Limits
 
-- No real Gemini call has run yet. Unverified: model ID `gemini-4-hydrogen`, the `v1beta` endpoint, PDF input, Files API from a browser (CORS, the `x-goog-upload-url` header), video size and length limits.
+- Verified with a real key (2026-11-21): model IDs `gemini-4-argon|carbon|neon|hydrogen`, the `v1beta` endpoint, inline PDF input, PA text.
+- Still unverified: Files API from a browser (CORS, the `x-goog-upload-url` header), any video call, video size and length limits, Find fix with Gemini.
+- Floor plan -> twin took about 105 s: too slow to run live on stage. Use the `malinGemini` preset on stage, or start the call before the pitch.
+- In `malinGemini`, exits E3, E4 and all head counts are Gemini's reading of the plan, not checked against the building.
 - Geometry from video alone will be rough. The safe stage path is plan + video, or "update this twin".
 - The API key is typed into the page. Root `CLAUDE.md` says Gemini is only called from `server/`; that rule covers `web/`, and this prototype does not follow it.
 - Setup dialog is taller than a 390x664 phone screen now; it scrolls inside with no scroll bar.
@@ -50,4 +54,5 @@ Out: `web/`, `server/`, `sim.js`, `render.js`. Managed Agent sweep. Live camera 
 - [x] Browser, `fetch` stubbed: video -> upload start, upload, poll, `generateContent` with a `file_data` part -> layout loads, "Gemini saw" shows 2 notes, no console errors
 - [x] No key: status line shows "no API key"; twin unchanged
 - [x] Page still has no scroll (pane size)
-- [ ] Real key: the 3 tests in the checklist
+- [x] Real key: PDF -> twin loads; "Gemini saw" shows 6 notes
+- [ ] Real key: the 2 video tests in the checklist
