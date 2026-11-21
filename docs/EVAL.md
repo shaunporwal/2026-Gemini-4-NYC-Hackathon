@@ -71,3 +71,19 @@ The phone page now sends where the phone stands and which way it faces (the user
 Change after the failure: on the timer, a frame with no furniture no longer replaces a room that has furniture ("Kept the earlier capture"). The head count from a black frame (0) still goes through: not fixed.
 
 Not measured: whether the pose makes the placement more correct. No ground truth for furniture positions.
+
+## "Only 1 person detected" (2026-11-21, about 15:00)
+
+Wide-angle phone frame of West Booth Lounge, about 8 people clearly visible, more partly hidden. The phone showed "People 1".
+
+| Check | Result |
+|---|---|
+| Server log for that stream | Hydrogen was asked once, on the first frame (phone still being lifted): 1 person. The next ask came 15 s later: 11. In between, every frame showed the old "1" |
+| Same frame, Hydrogen thinking low, asked directly (feet points) | 11 people, 6.0 s |
+| Same frame, Hydrogen thinking low, bounding boxes | 11 people, 7.5 s |
+
+Cause: not the model. The server asked for a count only when the crowding level changed or every 10 s, so a count could be 15 s old. And a lowered phone sent black frames, which read as 0 people.
+
+Changes: the count is refreshed every 3 s (each ask takes about 5 s, so it is now asked back to back). The phone page does not send a frame that is too dark, and says so.
+
+Not done: a second detection model (for example SAM 2). The count from Gemini was not the problem in this case, and 11 against "about 8 clearly visible" has no ground truth yet.
