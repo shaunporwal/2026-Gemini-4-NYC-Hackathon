@@ -196,10 +196,11 @@
     showLive();
     if (state.frozen) return;   // frozen: the feed still shows, the twin keeps its last capture
     const sim = state.sim, idle = sim.alarmTick < 0;
-    const moved = o.pose && JSON.stringify(o.pose) !== JSON.stringify(room.view || null) && o.peopleCount > 0;
+    const views = o.poses && o.poses.length ? o.poses : o.pose ? [o.pose] : null;   // every phone that films this room now
+    const moved = views && JSON.stringify(views) !== JSON.stringify(room.views || null) && o.peopleCount > 0;
     if (idle && o.stream && o.stream.ok && (o.peopleCount !== room.people || moved)) {
       room.people = o.peopleCount;
-      if (o.pose) room.view = { x: o.pose.x, y: o.pose.y, yaw: o.pose.yaw };   // the sim puts the counted people in this view
+      if (views) room.views = views;   // the sim puts the counted people in these views
       $('json').value = JSON.stringify(state.layout);
       informed(room.name);
       reset();
@@ -549,7 +550,7 @@
       if (sim.done) onDone();
     }
     if (queueTick !== sim.tick) updateQueues(sim);
-    view.draw(sim, t, { running: state.running, stepMs: 1000 / +$('speed').value, congestion: $('congestion').checked, cutaway: $('cutaway').checked, marks, tracked: trackedOpening, phones: [...live.values()].map(o => o.pose).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
+    view.draw(sim, t, { running: state.running, stepMs: 1000 / +$('speed').value, congestion: $('congestion').checked, cutaway: $('cutaway').checked, marks, tracked: trackedOpening, phones: [...live.values()].flatMap(o => (o.poses && o.poses.length ? o.poses : [o.pose])).filter(Boolean) });   // marks: rooms a phone just reported. tracked: the doorway on watch.
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
     updateWorkspace(sim, t);
