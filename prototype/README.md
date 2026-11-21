@@ -1,6 +1,6 @@
 # Fire Twin
 
-Photo of a floor plan → digital twin → live fire and evacuation → Gemini proposes a fix → the simulator proves it.
+Floor plan or walkthrough video → digital twin → live fire and evacuation → Gemini proposes a fix → the simulator proves it.
 
 Gemini 4 NYC Hackathon, 2026-11-21.
 
@@ -11,13 +11,21 @@ For the Gemini steps, paste an API key in the side panel (it stays in the tab).
 
 ## Demo path
 
-1. (Optional) "Floor plan photo → twin": Gemini converts a photo or hand sketch to the layout JSON.
+1. (Optional) Setup → "Floor plan and/or video → new twin": Gemini converts a floor plan (photo, PDF, sketch) and/or a walkthrough video to the layout JSON. "Room photo or video → update this twin": Gemini finds which room of the current layout the photo shows, then sets its head count, colors, furniture and blocked doors. The side panel lists what Gemini saw.
 2. Click the floor: fire starts. Fire and smoke spread; people go to the nearest safe exit; routes update each second.
 3. The PA text changes when an exit is blocked (Gemini writes it; the browser speaks it).
 4. "Find fix": candidates from search + Gemini. The simulator scores each one against the same fire.
 5. "Apply best + replay": same fire, new layout. Compare "Lost" in the Runs table.
 
 Click a door or exit to lock or unlock it. Red = locked.
+
+The **3D / 2D** button in the header switches the view of the same simulation. In 3D: drag to orbit, scroll to zoom, click the floor to start a fire. A layout can carry `wallColor`, a `color` for each room and `objects` (furniture); Gemini fills these from a video so the 3D view looks like the room. Furniture footprints block pedestrian placement and movement, including diagonal shortcuts. Stages remain walkable. Smoke and fire can pass through furnished cells.
+
+### Doorway queues
+
+Pick a door or exit in the queue panel to see its current and peak queue, distinct people who waited, total waiting time and longest uninterrupted individual wait. A wait counts when someone has an exit route, is ready to take a step, and people ahead block their progress at the opening. The engine also follows occupied cells back along a line. A person can count at several doors during one evacuation.
+
+Each waiting person adds 0.5 person-seconds per tick. Waiting smoke exposure sums the local smoke index (0–1) multiplied by those seconds. For example, four people waiting for two seconds at an index of 0.5 contribute eight person-seconds and four smoke-seconds. Reset or replay starts the counters fresh.
 
 Layouts (`layouts.js`):
 

@@ -4,4 +4,10 @@ One doc per PR: goal, scope, checklist, known limits, smoke tests. The PR descri
 
 | PR | Doc | Status |
 |---|---|---|
-| 1 | [Fire Twin prototype + one-screen UI](1-fire-twin-prototype.md) | done |
+| 2 | [Video and floor plan -> twin](2-video-to-twin.md) | in progress |
+
+## Archive
+
+| PR | Doc | Status |
+|---|---|---|
+| 1 | [Fire Twin prototype + one-screen UI](archive/1-fire-twin-prototype.md) | done |

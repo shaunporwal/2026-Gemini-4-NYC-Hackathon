@@ -8,11 +8,17 @@
       html, body { margin: 0; height: 100%; background: #0e1116; color: #e6e6e6; font-family: system-ui, sans-serif; overflow: hidden; }
       #app { position: fixed; inset: 0; }
       #hud { position: fixed; top: 12px; left: 12px; padding: 8px 12px; background: #000a; border-radius: 6px; font-size: 13px; line-height: 1.5; white-space: pre; }
+      #panel { position: fixed; top: 12px; left: 12px; max-width: calc(100vw - 48px); padding: 10px 12px; background: #111820eb; border-radius: 6px; }
+      #hud { position: static; background: none; padding: 0; white-space: pre-wrap; }
+      #panel button { margin: 8px 4px 0 0; cursor: pointer; }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud">loading…</div>
+    <section id="panel"><div id="hud">Loading map…</div>
+      <button id="start" disabled>Run demo</button><button id="pause" disabled>Pause</button>
+      <button id="reset" disabled>Reset</button><button id="replay" disabled>Replay</button>
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

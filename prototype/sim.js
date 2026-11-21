@@ -64,10 +64,34 @@
     return errs;
   }
 
+  // Use matching furniture footprints for drawing, spawning and navigation.
+  function furnitureCells(layout, terrain) {
+    const cells = [];
+    const objects = Array.isArray(layout.objects) ? layout.objects.slice(0, 120) : [];
+    for (const object of objects) {
+      if (!object || typeof object !== 'object') continue;
+      const left = Math.round(+object.x), top = Math.round(+object.y);
+      const right = Math.min(layout.width, left + Math.max(1, Math.round(+object.w) || 1));
+      const bottom = Math.min(layout.height, top + Math.max(1, Math.round(+object.h) || 1));
+      for (let y = Math.max(0, top); y < bottom; y++) {
+        for (let x = Math.max(0, left); x < right; x++) {
+          const i = y * layout.width + x;
+          if (terrain[i] === FLOOR) cells.push({ i, x, y, object });
+          if (cells.length === 4000) return cells;
+        }
+      }
+    }
+    return cells;
+  }
+
   class Sim {
     constructor(layout, opts) {
       opts = opts || {};
       this.L = layout;
+      // A pre-rasterized voxel map supplies terrain and exact spawn cells.
+      const grid = opts.grid;
+      this.walkable = grid?.walkable;
+      this.cellSize = grid?.cellSize ?? 1;
       const W = this.W = layout.width, H = this.H = layout.height, N = this.N = W * H;
       this.fireRate = opts.fireRate == null ? 0.08 : opts.fireRate;
       const seed = opts.seed || 7;
@@ -109,6 +133,7 @@
         for (let y = r.y; y < r.y + r.h; y++) { this.type[y * W + r.x] = WALL; this.type[y * W + r.x + r.w - 1] = WALL; }
       });
 
+      if (grid) this.type.set(grid.terrain);
       this.openings = [];
       const addOpenings = (kind, refs) => refs.forEach(ref => {
         const cells = [];
@@ -119,16 +144,36 @@
       addOpenings('door', layout.doors);
       addOpenings('exit', layout.exits);
 
+      this.doorQueues = this.openings.map(() => ({
+        waiting: 0, peak: 0, people: new Set(), waitSeconds: 0, maxWaitSeconds: 0, smokeSeconds: 0
+      }));
+
+      this.furniture = furnitureCells(layout, this.type);
+      if (this.furniture.length) {
+        this.walkable = grid ? grid.walkable.slice() : new Uint8Array(N).fill(1);
+        for (const { i, object } of this.furniture) {
+          if (object.type !== 'stage') this.walkable[i] = 0;
+        }
+      }
+
       this.people = [];
+      const spawn = i => {
+        if (!this.passable(i)) return;
+        this.occ[i] = this.people.length;
+        this.people.push({
+          i, state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10),
+          queueOpening: -1, queueStreakSeconds: 0
+        });
+      };
+      if (grid) grid.spawnCells.forEach(spawn);
       layout.rooms.forEach((r, ri) => {
         const cells = [];
-        for (let i = 0; i < N; i++) if (this.roomOf[i] === ri && this.type[i] === FLOOR) cells.push(i);
+        for (let i = 0; i < N; i++) if (this.roomOf[i] === ri && this.type[i] === FLOOR && this.passable(i)) cells.push(i);
         for (let i = cells.length - 1; i > 0; i--) {
           const j = Math.floor(randPlace() * (i + 1)), t = cells[i]; cells[i] = cells[j]; cells[j] = t;
         }
         for (let k = 0, n = Math.min(r.people || 0, cells.length); k < n; k++) {
-          this.occ[cells[k]] = this.people.length;
-          this.people.push({ i: cells[k], state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10) });
+          spawn(cells[k]);
         }
       });
 
@@ -156,7 +201,7 @@
     }
 
     solid(i) { const t = this.type[i]; return t === WALL || t === LOCKED; }       // blocks fire, smoke, people
-    passable(i) { return !this.solid(i) && !this.fire[i]; }                        // a person can stand here
+    passable(i) { return !this.solid(i) && !this.fire[i] && (!this.walkable || this.walkable[i] !== 0); }                        // a person can stand here
     canStep(e) { return this.passable(e.j) && (e.a < 0 || (this.passable(e.a) && this.passable(e.b))); }
 
     ignite(x, y) {
@@ -266,25 +311,78 @@
       this.out++; this.lastOutTick = this.tick;
     }
 
+    /* Trace a denied step through the occupied line. An empty floor cell breaks
+     * the chain. A blocker on the approach to an open threshold can anchor it,
+     * even on a tick when the threshold itself has just cleared. The routing
+     * score strictly decreases along every link, so the trace cannot cycle. */
+    queueAt(cell, blocker) {
+      if (this.tagOf[cell] >= 0) return this.tagOf[cell];
+      while (blocker >= 0) {
+        if (this.tagOf[blocker] >= 0) return this.tagOf[blocker];
+        if (this.occ[blocker] < 0) break;
+        let next = -1, cost = this.dist[blocker];
+        for (const e of this.adj[blocker]) {
+          if (this.dist[e.j] < cost && this.canStep(e)) {
+            next = e.j;
+            cost = this.dist[e.j];
+          }
+        }
+        blocker = next;
+      }
+      return -1;
+    }
+
+    /* Snapshot only. Reading this from the UI never advances the meters. */
+    queueStats() {
+      return this.doorQueues.map((q, i) => ({
+        id: this.openings[i].ref.id, kind: this.openings[i].kind,
+        waiting: q.waiting, peak: q.peak, people: q.people.size,
+        waitSeconds: q.waitSeconds, maxWaitSeconds: q.maxWaitSeconds, smokeSeconds: q.smokeSeconds
+      }));
+    }
+
     movePeople() {
       const { type, fire, smoke, dist, occ, adj } = this;
+      for (const q of this.doorQueues) q.waiting = 0;
       const order = this.people.filter(p => p.state === ACTIVE).sort((a, b) => dist[a.i] - dist[b.i]);
       for (const p of order) {
-        const c = p.i;
+        const c = p.i, previousQueue = p.queueOpening;
+        p.queueOpening = -1;
         p.dose += smoke[c];
         if (fire[c] || p.dose > DOSE_LIMIT) { this.leave(p, DOWN); continue; }
         if (type[c] === EXIT) { this.leave(p, OUT); continue; }
         if (this.tick - this.alarmTick < p.delay || --p.cool > 0) continue;
         let best = -1, bestV = this.score(p, c) - (this.trapped(p) ? 0.02 : 0);
+        let blocker = -1, blockerCost = dist[c];
         for (const e of adj[c]) {
-          if (occ[e.j] !== -1 || !this.canStep(e)) continue;
+          if (!this.canStep(e)) continue;
+          if (occ[e.j] !== -1) {
+            if (dist[e.j] < blockerCost) { blockerCost = dist[e.j]; blocker = e.j; }
+            continue;
+          }
           const v = this.score(p, e.j);
           if (v < bestV) { bestV = v; best = e.j; }
         }
-        if (best < 0) { p.cool = 1; continue; }
+        if (best < 0) {
+          if (blocker >= 0 && Number.isFinite(dist[c])) {
+            p.queueOpening = this.queueAt(c, blocker);
+            if (p.queueOpening >= 0) {
+              const q = this.doorQueues[p.queueOpening];
+              p.queueStreakSeconds = (previousQueue === p.queueOpening ? p.queueStreakSeconds : 0) + DT;
+              q.waiting++;
+              q.peak = Math.max(q.peak, q.waiting);
+              q.people.add(p);
+              q.waitSeconds += DT;
+              q.maxWaitSeconds = Math.max(q.maxWaitSeconds, p.queueStreakSeconds);
+              q.smokeSeconds += smoke[c] * DT;
+            }
+          }
+          p.cool = 1;
+          continue;
+        }
         if (!this.trapped(p)) this.lastProgress = this.tick;
         occ[c] = -1; occ[best] = this.people.indexOf(p); p.i = best;
-        p.cool = smoke[best] > 0.4 ? 4 : 2;                    // smoke halves walking speed
+        p.cool = Math.max(1, Math.round(this.cellSize * (smoke[best] > 0.4 ? 4 : 2)));                    // smoke halves walking speed
       }
     }
 
@@ -327,7 +425,7 @@
   function run(layout, ignitions, opts) {
     const sim = new Sim(layout, Object.assign({}, opts, { ignitions }));
     while (!sim.done) sim.step();
-    return sim.stats();
+    return Object.assign(sim.stats(), { queues: sim.queueStats() });
   }
 
   /* Returns a NEW layout with the action applied, or null if the action is invalid.
@@ -356,6 +454,32 @@
     return null;
   }
 
+  /* Returns {layout, rooms} = a NEW layout with a Gemini observation applied (what a photo or video of
+   * some rooms shows), and the names of the rooms it matched. null if it matched no room.
+   * obs = {rooms:[{name, people, color}], wallColor, objects:[...], openings:[{id, locked}], notes:[...]} */
+  function applyObservation(layout, obs) {
+    if (!obs || typeof obs !== 'object') return null;
+    const L = clone(layout), seen = [], list = v => (Array.isArray(v) ? v : []).filter(o => o && typeof o === 'object');
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    for (const o of list(obs.rooms)) {
+      const r = L.rooms.find(room => same(room.name, o.name));
+      if (!r) continue;
+      if (Number.isFinite(+o.people)) r.people = Math.round(+o.people);
+      if (typeof o.color === 'string') r.color = o.color;
+      seen.push(r);
+    }
+    if (!seen.length) return null;
+    const inSeen = o => seen.some(r => o.x >= r.x && o.y >= r.y && o.x < r.x + r.w && o.y < r.y + r.h);
+    L.objects = list(L.objects).filter(o => !inSeen(o)).concat(list(obs.objects).filter(inSeen));   // new furniture replaces old, in these rooms only
+    if (typeof obs.wallColor === 'string') L.wallColor = obs.wallColor;
+    for (const o of list(obs.openings)) {
+      const target = openingsOf(L).find(e => same(e.id, o.id));
+      if (target) target.locked = !!o.locked;
+    }
+    L.notes = obs.notes;
+    return { layout: L, rooms: seen.map(r => r.name) };
+  }
+
   function actionLabel(a) {
     return a.action === 'unlock' ? 'Unlock ' + String(a.id).toUpperCase()
       : a.action === 'unlock_all' ? 'Unlock all'
@@ -363,7 +487,7 @@
       : String(a.action);
   }
 
-  const api = { Sim, run, applyAction, actionLabel, validateLayout, clone, openingsOf,                 DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
+  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireSim = api;
 })(typeof window !== 'undefined' ? window : globalThis);

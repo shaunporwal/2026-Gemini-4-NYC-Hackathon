@@ -4,12 +4,19 @@
   const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts;
   const $ = id => document.getElementById(id);
   const SEED = 7;
+  const KEY_STORE = 'fireTwinGeminiKey';
+  const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
   const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
-  const view = window.FireRender.create($('cv'), $('stage'));
+  /* Two views of the same sim: 2D canvas and 3D voxels. Same interface; the 3D one starts on first use. */
+  const VIEWS = {
+    '2d': { canvas: 'cv', make: window.FireRender, other: '3d' },
+    '3d': { canvas: 'cv3d', make: window.FireRender3D, other: '2d' }
+  };
+  let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
-  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim() });
+  const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
 
   function el(tag, text, cls) {
@@ -36,13 +43,77 @@
     if (note) { const td = el('td', note, 'note'); td.colSpan = 4; const r = el('tr'); r.append(td); tbody.append(r); }
   }
 
+  let queueLayout, queueTick = -1, trackedOpening = -1;
+
+  function buildQueueMenu(sim) {
+    const menu = $('queueOpening');
+    const selection = queueLayout === state.layout ? menu.value : '';
+    const automatic = el('option', 'Follow busiest'); automatic.value = '';
+    menu.replaceChildren(automatic);
+    sim.openings.forEach((o, index) => {
+      const name = (o.kind === 'exit' ? 'Exit ' : 'Door ') + o.ref.id;
+      const opt = el('option', o.ref.name ? name + ' · ' + o.ref.name : name);
+      opt.value = String(index);
+      menu.append(opt);
+    });
+    menu.value = selection;
+    queueLayout = state.layout;
+    queueTick = -1;
+  }
+
+  function smokeValue(value) {
+    if (value > 0 && value < 0.01) return '<0.01';
+    return String(Number(value.toFixed(2)));
+  }
+
+  function updateQueues(sim) {
+    queueTick = sim.tick;
+    const rows = sim.queueStats(), selection = $('queueOpening').value;
+    trackedOpening = selection === '' ? -1 : Number(selection);
+    if (trackedOpening < 0) {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i], best = rows[trackedOpening];
+        if (!r.people) continue;
+        if (!best || r.waiting > best.waiting || (r.waiting === best.waiting && r.waitSeconds > best.waitSeconds)) trackedOpening = i;
+      }
+    }
+    const row = rows[trackedOpening];
+    $('queueName').textContent = row ? (row.kind === 'exit' ? 'Exit ' : 'Door ') + row.id : 'No queues recorded';
+    $('qWaiting').textContent = row?.waiting ?? 0;
+    $('qPeak').textContent = row?.peak ?? 0;
+    $('qPeople').textContent = row?.people ?? 0;
+    $('qWait').textContent = (row?.waitSeconds ?? 0) + ' person-s';
+    $('qLongest').textContent = (row?.maxWaitSeconds ?? 0) + ' s';
+    $('qSmoke').textContent = smokeValue(row?.smokeSeconds ?? 0) + ' smoke-s';
+    $('queueMeans').textContent = row?.people
+      ? 'Each affected person averaged ' + (row.waitSeconds / row.people).toFixed(1) + ' s of waiting and ' + smokeValue(row.smokeSeconds / row.people) + ' smoke-s.'
+      : 'A person counts once per opening when their next step is blocked by another person in its queue.';
+  }
+
   /* New sim on the current layout. With ignitions: replay that fire. */
   function reset(ignitions) {
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions }));
     state.running = !!(ignitions && ignitions.length);
     state.annKey = ''; state.acc = 0;
     view.fit(state.sim);
+    buildQueueMenu(state.sim);
     showLabel();
+  }
+
+  /* What Gemini saw or heard in the last floor plan or video. Empty list = hide. */
+  function showSeen(notes) {
+    $('seen').replaceChildren(...notes.map(n => { const tr = el('tr'); tr.append(el('td', n)); return tr; }));
+    $('seenTable').hidden = !notes.length;
+  }
+
+  function setView(mode) {
+    const v = VIEWS[mode];
+    Object.values(VIEWS).forEach(o => { $(o.canvas).hidden = o !== v; });
+    v.view = v.view || v.make.create($(v.canvas), $('stage'));
+    view = v.view;
+    $('dim').textContent = v.other.toUpperCase();
+    $('dim').dataset.next = v.other;
+    if (state.sim) view.fit(state.sim);
   }
 
   function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
@@ -56,6 +127,7 @@
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
+    showSeen(G.notesOf(L));
     reset();
     say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
   }
@@ -147,7 +219,8 @@
       checkAnnounce();
       if (sim.done) onDone();
     }
-    view.draw(sim, t);
+    if (queueTick !== sim.tick) updateQueues(sim);
+    view.draw(sim, t, trackedOpening);
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
     requestAnimationFrame(frame);
@@ -162,7 +235,9 @@
     });
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
-    on('cv', 'click', onCanvasClick);
+    Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
+    on('queueOpening', 'change', () => updateQueues(state.sim));
+    on('dim', 'click', guarded('3D view', () => setView($('dim').dataset.next)));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
     on('reset', 'click', () => reset());
@@ -171,15 +246,33 @@
     on('apply', 'click', applyFix);
     on('loadJson', 'click', guarded('Layout', () => loadLayout(JSON.parse($('json').value))));
     on('preset', 'change', () => loadLayout(F.clone(LAYOUTS[$('preset').value])));
-    on('photo', 'change', guarded('Photo', async ev => {
-      const file = ev.target.files[0]; ev.target.value = '';
-      if (!file) return;
-      log('Gemini: reading the floor plan…');
-      loadLayout(await G.layoutFromPhoto(cfg(), file, LAYOUTS.demo));
-      log('Layout loaded from photo.');
+    /* job(files, status) -> {layout, note}. The status line shows each step and the time the call took. */
+    const fromGemini = (what, job) => guarded(what, async ev => {
+      const files = [...ev.target.files]; ev.target.value = '';
+      if (!files.length) return;
+      $('setupDlg').close();
+      const t0 = Date.now(), res = await job(files, msg => log('Gemini: ' + msg));
+      loadLayout(res.layout);
+      log(what + ': ' + res.note + ' (' + Math.round((Date.now() - t0) / 1000) + ' s)');
+    });
+    on('media', 'change', fromGemini('New twin', async (files, status) =>
+      ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
+    on('walk', 'change', fromGemini('Update', async (files, status) => {
+      const res = F.applyObservation(state.layout, await G.observe(cfg(), files, state.layout, status));
+      if (!res) throw new Error('Gemini did not match a room of this layout');
+      return { layout: res.layout, note: 'Gemini placed this in ' + res.rooms.join(' + ') + '.' };
     }));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
+    /* The key survives a reload of this tab (sessionStorage). It is never written to a file. */
+    const keyChanged = () => {
+      sessionStorage.setItem(KEY_STORE, cfg().key);
+      $('keyState').textContent = cfg().key ? KEY_SAVED : KEY_MISSING;
+    };
+    $('key').value = sessionStorage.getItem(KEY_STORE) || '';
+    on('key', 'input', keyChanged);
+    keyChanged();
+    setView('2d');
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);
   }
