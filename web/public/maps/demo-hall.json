@@ -1,8 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Demo Event Hall",
-  "cellSize": 0.5,
-  "wallHeight": 3.0,
+  "dimensions": {"width": 64, "height": 40, "cellSize": 0.5, "wallHeight": 3.0},
   "rows": [
     "###########################################EE###################",
     "#....................P.......P.P.....P..#......#...............#",
@@ -46,72 +45,14 @@
     "##################EEEE##########################################"
   ],
   "zones": [
-    {
-      "id": "main-hall",
-      "name": "Main Hall",
-      "x": 1,
-      "y": 1,
-      "w": 39,
-      "h": 38
-    },
-    {
-      "id": "corridor",
-      "name": "East Corridor",
-      "x": 41,
-      "y": 1,
-      "w": 6,
-      "h": 38
-    },
-    {
-      "id": "room-a",
-      "name": "Storage Room A",
-      "x": 48,
-      "y": 1,
-      "w": 15,
-      "h": 18
-    },
-    {
-      "id": "room-b",
-      "name": "Lounge B",
-      "x": 48,
-      "y": 20,
-      "w": 15,
-      "h": 19
-    }
+    {"id": "main-hall", "name": "Main Hall", "x": 1, "y": 1, "w": 39, "h": 38},
+    {"id": "corridor", "name": "East Corridor", "x": 41, "y": 1, "w": 6, "h": 38},
+    {"id": "room-a", "name": "Storage Room A", "x": 48, "y": 1, "w": 15, "h": 18},
+    {"id": "room-b", "name": "Lounge B", "x": 48, "y": 20, "w": 15, "h": 19}
   ],
   "cameras": [
-    {
-      "id": "cam-hall-ne",
-      "name": "Main Hall NE corner",
-      "x": 38.5,
-      "y": 1.5,
-      "height": 2.8,
-      "yaw": 225,
-      "pitch": -30,
-      "fov": 90,
-      "range": 40
-    },
-    {
-      "id": "cam-entrance",
-      "name": "Main entrance",
-      "x": 20,
-      "y": 37.5,
-      "height": 2.8,
-      "yaw": 0,
-      "pitch": -25,
-      "fov": 100,
-      "range": 30
-    },
-    {
-      "id": "cam-corridor",
-      "name": "East corridor",
-      "x": 44,
-      "y": 38.5,
-      "height": 2.8,
-      "yaw": 0,
-      "pitch": -20,
-      "fov": 60,
-      "range": 40
-    }
+    {"id": "cam-hall-ne", "name": "Main Hall NE corner", "position": {"x": 38.5, "y": 1.5, "z": 2.8}, "orientation": {"yaw": 225, "pitch": -30}, "lens": {"fov": 90, "range": 40}},
+    {"id": "cam-entrance", "name": "Main entrance", "position": {"x": 20, "y": 37.5, "z": 2.8}, "orientation": {"yaw": 0, "pitch": -25}, "lens": {"fov": 100, "range": 30}},
+    {"id": "cam-corridor", "name": "East corridor", "position": {"x": 44, "y": 38.5, "z": 2.8}, "orientation": {"yaw": 0, "pitch": -20}, "lens": {"fov": 60, "range": 40}}
   ]
 }

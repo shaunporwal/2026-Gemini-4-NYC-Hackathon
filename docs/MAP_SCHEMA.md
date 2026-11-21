@@ -1,4 +1,4 @@
-# Map JSON Schema (v1)
+# Map JSON Schema (v2)
 
 The map file is the **single source of truth for the venue**. Everything that is drawn or simulated
 comes from it. **Everything physical is a character in the grid**: walls, exits, tables, chairs and
@@ -13,9 +13,9 @@ people. Only things that need extra numbers (cameras, named zones) are lists.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "Small Cafe",
-  "cellSize": 0.5,
+  "dimensions": { "width": 9, "height": 6, "cellSize": 0.5, "wallHeight": 2.8 },
   "rows": [
     "####E####",
     "#.P....P#",
@@ -25,14 +25,20 @@ people. Only things that need extra numbers (cameras, named zones) are lists.
     "####E####"
   ],
   "cameras": [
-    { "id": "cam-cafe", "name": "Cafe corner", "x": 7.5, "y": 1.5, "height": 2.5,
-      "yaw": 225, "pitch": -30, "fov": 100, "range": 12 }
+    {
+      "id": "cam-cafe",
+      "name": "Cafe corner",
+      "position":    { "x": 7.5, "y": 1.5, "z": 2.5 },
+      "orientation": { "yaw": 225, "pitch": -30 },
+      "lens":        { "fov": 100, "range": 12 }
+    }
   ]
 }
 ```
 
-**The grid size is not fixed.** `width = rows[0].length` and `height = rows.length`. There is no
-minimum or maximum. The only rule is that every row has the same length.
+**The grid size is not fixed, but it is stated.** `dimensions.width` and `dimensions.height` give the
+size in cells. `rows` must match exactly: `height` rows, each with `width` characters. There is no
+minimum or maximum.
 
 ## Characters (default legend)
 
@@ -82,14 +88,26 @@ No other code changes are needed.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `version` | `1` | yes | Bump on a breaking schema change. |
+| `version` | `2` | yes | Bump on a breaking schema change. |
 | `name` | string | yes | Shown in the UI and in Gemini prompts. |
-| `cellSize` | number (m) | no, `0.5` | Metres per cell. |
-| `wallHeight` | number (m) | no, `3` | Voxel height of wall cells. |
+| `dimensions` | Dimensions | yes | Grid size and scale (see below). |
 | `legend` | `{char: type}` | no | Extra or overriding characters. |
 | `rows` | string[] | yes | The grid. |
 | `zones` | Zone[] | no | Named rectangles, used for stats and labels. |
 | `cameras` | Camera[] | no | Camera placements. |
+
+### Dimensions
+
+```json
+"dimensions": { "width": 160, "height": 100, "cellSize": 0.5, "wallHeight": 4 }
+```
+
+| Field | Unit | Required | Notes |
+|---|---|---|---|
+| `width` | cells | yes | Columns. Every row must have exactly this many characters. |
+| `height` | cells | yes | Rows. `rows.length` must equal this. |
+| `cellSize` | metres | no, `0.5` | Metres per cell. Real size = `width × cellSize` by `height × cellSize`. |
+| `wallHeight` | metres | no, `3` | Voxel height of wall cells. |
 
 ### Zone
 
@@ -101,25 +119,34 @@ An axis-aligned rectangle in cells (covers `x..x+w-1`, `y..y+h-1`). Used for per
 
 ### Camera
 
+Cameras live in their own `cameras` field, separate from the grid. Each one has three blocks:
+where it is, where it points, and what it can see.
+
 ```json
-{ "id": "cam-hall-ne", "name": "Main Hall NE corner",
-  "x": 38.5, "y": 1.5, "height": 2.8, "yaw": 225, "pitch": -30, "fov": 90, "range": 40 }
+{
+  "id": "cam-hall-ne",
+  "name": "Main Hall NE corner",
+  "position":    { "x": 38.5, "y": 1.5, "z": 2.8 },
+  "orientation": { "yaw": 225, "pitch": -30 },
+  "lens":        { "fov": 90, "range": 40 }
+}
 ```
 
 | Field | Unit | Notes |
 |---|---|---|
 | `id` | string | Stable key. The Gemini feed reports observations by this id. |
-| `x`, `y` | cells (float) | Position on the plan. Use `.5` to centre in a cell. |
-| `height` | metres | Mounting height. |
-| `yaw` | degrees | Compass bearing (see above). |
-| `pitch` | degrees | Negative = down. |
-| `fov` | degrees | Horizontal field of view. |
-| `range` | cells | Maximum view distance. |
+| `name` | string | Human-readable; useful as Gemini prompt context. |
+| `position.x`, `position.y` | cells (float) | Position on the plan. Use `.5` to centre in a cell. |
+| `position.z` | metres | Mounting height. |
+| `orientation.yaw` | degrees | Compass bearing (see above). |
+| `orientation.pitch` | degrees | Negative = down. |
+| `lens.fov` | degrees | Horizontal field of view (0–180). |
+| `lens.range` | cells | Maximum view distance. |
 
 The loader computes `visibleCells` for each camera: walkable cells inside the horizontal cone
-(`yaw ± fov/2`, within `range`) with **line of sight**, where opaque cells (walls) block the view.
+(`orientation.yaw ± lens.fov/2`, within `lens.range`) with **line of sight**, where opaque cells (walls) block the view.
 People reported by the Gemini feed for a camera are placed only in that camera's visible cells.
-Changing a camera's position or yaw means calling `computeVisibleCells(map, cam)` again.
+Changing a camera's `position` or `orientation` means calling `computeVisibleCells(map, cam)` again.
 
 ## What the loader produces (`MapModel`)
 
@@ -131,12 +158,12 @@ Changing a camera's position or yaw means calling `computeVisibleCells(map, cam)
 ## Validation rules (`web/src/map/loader.ts`)
 
 The loader collects **all** problems and throws one `MapValidationError` that lists them:
-1. `version` is `1`, `name` is present, `rows` is a non-empty array of strings.
-2. All rows are the same length.
+1. `version` is `2`, `name` is present, `rows` is a non-empty array of strings.
+2. `dimensions.width` and `dimensions.height` are positive integers; `rows.length === height` and every row has `width` characters.
 3. Every character is in the merged legend (the error gives the first location of each unknown character).
 4. Legend keys are single characters, and their values are known types.
 5. There is at least one `exit` cell.
-6. Zones are inside the grid. Camera ids are unique and cameras are inside the grid.
+6. Zones are inside the grid. Camera ids are unique, each camera has `position`, `orientation` and `lens`, its position is inside the grid, and `0 < fov ≤ 180`, `range > 0`.
 
 ## Relation to the `prototype/` layout format
 
@@ -150,11 +177,22 @@ The plain-JS prototype on `main` uses rectangles: `rooms[]` (each with a people 
 | `doors[]`, `exits[]` | `D` and `E` characters |
 | `exits[].locked` | Not in v1. Add a `locked-exit` cell type if it's needed (one registry entry) |
 | No furniture | `T` and `C` |
-| 1 cell = 1 m, width 10–120 × height 10–80 | `cellSize` is set per map (0.5 m default), any size |
+| `width`/`height` (1 cell = 1 m, 10–120 × 10–80) | `dimensions` (`cellSize` per map, 0.5 m default, any size) |
 
 A rooms-to-grid converter is straightforward: paint room outlines as `#`, paint openings as
 `D`/`E`, and scatter `people` as `P`. That makes the prototype's presets (for example the Malin
 Chelsea venue) loadable here.
+
+## Orientation of objects
+
+Grid objects (walls, exits, tables, chairs, people) have **no orientation field** in v2:
+- Exits and doors: facing is derived from which side is outside or void.
+- Tables: a multi-cell table's shape already gives its orientation.
+- Chairs: facing can be derived (toward the adjacent table). It only matters visually.
+- People: the sim sets the heading every step from the escape route.
+
+If a case appears that can't be derived, the plan is a sparse optional list rather than per-cell data:
+`"overrides": [{ "x": 12, "y": 30, "facing": 90 }]`.
 
 ## Changing the schema
 

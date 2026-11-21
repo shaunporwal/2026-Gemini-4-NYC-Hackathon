@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "map.schema.json",
-  "title": "Digital Twin Map v1",
+  "title": "Digital Twin Map v2",
   "description": "See docs/MAP_SCHEMA.md. Everything physical is a character in `rows`. Horizontal units are cells, vertical units are metres, yaw is compass degrees (0 = north = -y).",
   "type": "object",
   "required": [
     "version",
     "name",
+    "dimensions",
     "rows"
   ],
   "additionalProperties": false,
@@ -15,21 +16,40 @@
       "type": "string"
     },
     "version": {
-      "const": 1
+      "const": 2
     },
     "name": {
       "type": "string",
       "minLength": 1
     },
-    "cellSize": {
-      "type": "number",
-      "exclusiveMinimum": 0,
-      "default": 0.5
-    },
-    "wallHeight": {
-      "type": "number",
-      "exclusiveMinimum": 0,
-      "default": 3
+    "dimensions": {
+      "type": "object",
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false,
+      "description": "Grid size in cells. rows.length must equal height and every row must have width characters.",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cellSize": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.5
+        },
+        "wallHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 3
+        }
+      }
     },
     "legend": {
       "type": "object",
@@ -49,7 +69,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "The grid: one character per cell, all rows the same length. Default legend: '#' wall, '.' floor, 'E' exit, 'T' table, 'C' chair, 'P' person, 'D' door, ' ' void."
+      "description": "The grid: one character per cell, must match dimensions exactly. Default legend: '#' wall, '.' floor, 'E' exit, 'T' table, 'C' chair, 'P' person, 'D' door, ' ' void."
     },
     "zones": {
       "type": "array",
@@ -134,13 +154,9 @@
       "required": [
         "id",
         "name",
-        "x",
-        "y",
-        "height",
-        "yaw",
-        "pitch",
-        "fov",
-        "range"
+        "position",
+        "orientation",
+        "lens"
       ],
       "additionalProperties": false,
       "properties": {
@@ -150,36 +166,70 @@
         "name": {
           "type": "string"
         },
-        "x": {
-          "type": "number",
-          "minimum": 0
+        "position": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "z"
+          ],
+          "additionalProperties": false,
+          "description": "x, y in cells on the plan; z = mounting height in metres.",
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0
+            },
+            "z": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         },
-        "y": {
-          "type": "number",
-          "minimum": 0
+        "orientation": {
+          "type": "object",
+          "required": [
+            "yaw",
+            "pitch"
+          ],
+          "additionalProperties": false,
+          "description": "yaw: compass degrees (0 = north = -y, 90 = east). pitch: degrees, negative = down.",
+          "properties": {
+            "yaw": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 360
+            },
+            "pitch": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
+          }
         },
-        "height": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "yaw": {
-          "type": "number",
-          "minimum": 0,
-          "exclusiveMaximum": 360
-        },
-        "pitch": {
-          "type": "number",
-          "minimum": -90,
-          "maximum": 90
-        },
-        "fov": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 180
-        },
-        "range": {
-          "type": "number",
-          "exclusiveMinimum": 0
+        "lens": {
+          "type": "object",
+          "required": [
+            "fov",
+            "range"
+          ],
+          "additionalProperties": false,
+          "description": "fov: horizontal degrees. range: view distance in cells.",
+          "properties": {
+            "fov": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 180
+            },
+            "range": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     }

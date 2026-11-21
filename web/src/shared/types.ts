@@ -13,13 +13,12 @@ export type CellTypeName = "void" | "floor" | "wall" | "door" | "exit" | "table"
 export interface CameraDef {
   id: string;
   name: string;
-  x: number; // cells (float)
-  y: number; // cells (float)
-  height: number; // metres
-  yaw: number; // compass degrees
-  pitch: number; // degrees, negative = down
-  fov: number; // horizontal degrees
-  range: number; // cells
+  /** x, y in cells (float) on the plan; z = mounting height in metres. */
+  position: { x: number; y: number; z: number };
+  /** yaw: compass degrees (0 = north = -y, 90 = east). pitch: degrees, negative = down. */
+  orientation: { yaw: number; pitch: number };
+  /** fov: horizontal degrees. range: max view distance in cells. */
+  lens: { fov: number; range: number };
 }
 
 export interface ZoneDef {
@@ -31,14 +30,20 @@ export interface ZoneDef {
   h: number;
 }
 
-export interface MapFile {
-  version: 1;
-  name: string;
+export interface MapDimensions {
+  width: number; // cells (columns); every row must have exactly this many characters
+  height: number; // cells (rows); rows.length must equal this
   cellSize?: number; // metres per cell, default 0.5
   wallHeight?: number; // metres, default 3
+}
+
+export interface MapFile {
+  version: 2;
+  name: string;
+  dimensions: MapDimensions;
   /** Extra/overriding characters, e.g. { "B": "table" }. Merged over the default legend. */
   legend?: Record<string, CellTypeName>;
-  /** The grid. One character per cell, all rows the same length. Size = rows[0].length × rows.length. */
+  /** The grid. One character per cell; must match dimensions exactly. */
   rows: string[];
   zones?: ZoneDef[];
   cameras?: CameraDef[];

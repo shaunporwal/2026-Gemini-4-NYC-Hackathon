@@ -1,8 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Convention Center (stress test)",
-  "cellSize": 0.5,
-  "wallHeight": 4,
+  "dimensions": {"width": 160, "height": 100, "cellSize": 0.5, "wallHeight": 4},
   "legend": {"B": "table"},
   "rows": [
     "##############################EE###############################################################EE########################                                       ",
@@ -125,15 +124,15 @@
     {"id": "breakout-6", "name": "Breakout 6", "x": 101, "y": 71, "w": 19, "h": 28}
   ],
   "cameras": [
-    {"id": "cam-ball-nw", "name": "Ballroom NW corner", "x": 1.5, "y": 1.5, "height": 6, "yaw": 135, "pitch": -35, "fov": 90, "range": 80},
-    {"id": "cam-ball-se", "name": "Ballroom SE corner", "x": 70.5, "y": 56.5, "height": 6, "yaw": 315, "pitch": -35, "fov": 90, "range": 80},
-    {"id": "cam-lobby-w", "name": "Lobby at main entrance", "x": 1.5, "y": 64.5, "height": 3.5, "yaw": 90, "pitch": -30, "fov": 70, "range": 120},
-    {"id": "cam-lobby-e", "name": "Lobby east end", "x": 118.5, "y": 64.5, "height": 3.5, "yaw": 270, "pitch": -30, "fov": 70, "range": 120},
-    {"id": "cam-restaurant", "name": "Restaurant host stand", "x": 100.5, "y": 1.5, "height": 3.5, "yaw": 180, "pitch": -30, "fov": 110, "range": 50},
-    {"id": "cam-gallery", "name": "Gallery SW (courtyard blocks view)", "x": 73.5, "y": 56.5, "height": 3.5, "yaw": 45, "pitch": -30, "fov": 90, "range": 45},
-    {"id": "cam-kitchen", "name": "Kitchen pass", "x": 105.5, "y": 25.5, "height": 3.5, "yaw": 135, "pitch": -30, "fov": 90, "range": 60},
-    {"id": "cam-service", "name": "Service corridor", "x": 121.5, "y": 61.5, "height": 2.8, "yaw": 90, "pitch": -15, "fov": 40, "range": 40},
-    {"id": "cam-dock", "name": "Loading dock", "x": 157.5, "y": 97.5, "height": 5, "yaw": 315, "pitch": -30, "fov": 90, "range": 45},
-    {"id": "cam-breakout-3", "name": "Breakout 3 front", "x": 50.5, "y": 71.5, "height": 3, "yaw": 180, "pitch": -35, "fov": 100, "range": 30}
+    {"id": "cam-ball-nw", "name": "Ballroom NW corner", "position": {"x": 1.5, "y": 1.5, "z": 6}, "orientation": {"yaw": 135, "pitch": -35}, "lens": {"fov": 90, "range": 80}},
+    {"id": "cam-ball-se", "name": "Ballroom SE corner", "position": {"x": 70.5, "y": 56.5, "z": 6}, "orientation": {"yaw": 315, "pitch": -35}, "lens": {"fov": 90, "range": 80}},
+    {"id": "cam-lobby-w", "name": "Lobby at main entrance", "position": {"x": 1.5, "y": 64.5, "z": 3.5}, "orientation": {"yaw": 90, "pitch": -30}, "lens": {"fov": 70, "range": 120}},
+    {"id": "cam-lobby-e", "name": "Lobby east end", "position": {"x": 118.5, "y": 64.5, "z": 3.5}, "orientation": {"yaw": 270, "pitch": -30}, "lens": {"fov": 70, "range": 120}},
+    {"id": "cam-restaurant", "name": "Restaurant host stand", "position": {"x": 100.5, "y": 1.5, "z": 3.5}, "orientation": {"yaw": 180, "pitch": -30}, "lens": {"fov": 110, "range": 50}},
+    {"id": "cam-gallery", "name": "Gallery SW (courtyard blocks view)", "position": {"x": 73.5, "y": 56.5, "z": 3.5}, "orientation": {"yaw": 45, "pitch": -30}, "lens": {"fov": 90, "range": 45}},
+    {"id": "cam-kitchen", "name": "Kitchen pass", "position": {"x": 105.5, "y": 25.5, "z": 3.5}, "orientation": {"yaw": 135, "pitch": -30}, "lens": {"fov": 90, "range": 60}},
+    {"id": "cam-service", "name": "Service corridor", "position": {"x": 121.5, "y": 61.5, "z": 2.8}, "orientation": {"yaw": 90, "pitch": -15}, "lens": {"fov": 40, "range": 40}},
+    {"id": "cam-dock", "name": "Loading dock", "position": {"x": 157.5, "y": 97.5, "z": 5}, "orientation": {"yaw": 315, "pitch": -30}, "lens": {"fov": 90, "range": 45}},
+    {"id": "cam-breakout-3", "name": "Breakout 3 front", "position": {"x": 50.5, "y": 71.5, "z": 3}, "orientation": {"yaw": 180, "pitch": -35}, "lens": {"fov": 100, "range": 30}}
   ]
 }

@@ -142,7 +142,7 @@ export class VoxelScene {
     for (const cam of map.cameras) {
       const marker = new THREE.Mesh(this.box, new THREE.MeshLambertMaterial({ color: 0xffcc00 }));
       marker.scale.setScalar(s * 0.8);
-      marker.position.set(cam.x * s, cam.height, cam.y * s);
+      marker.position.set(cam.position.x * s, cam.position.z, cam.position.y * s);
       this.scene.add(marker);
 
       const cone = this.instanced(0xffcc00, cam.visibleCells.length, { transparent: true, opacity: 0.2, depthWrite: false });

@@ -23,19 +23,22 @@ export function buildMap(file: MapFile): MapModel {
   const name = file?.name ?? "?";
   const problems: string[] = [];
 
-  if (file?.version !== 1) problems.push(`"version" must be 1 (got ${JSON.stringify(file?.version)})`);
+  if (file?.version !== 2) problems.push(`"version" must be 2 (got ${JSON.stringify(file?.version)})`);
   if (!file?.name) problems.push(`"name" is required`);
-  if (!Array.isArray(file?.rows) || file.rows.length === 0 || !file.rows[0]) {
-    problems.push(`"rows" must be a non-empty array of strings`);
-    throw new MapValidationError(name, problems);
+  const dims = file?.dimensions;
+  const posInt = (v: unknown) => Number.isInteger(v) && (v as number) > 0;
+  if (!dims || !posInt(dims.width) || !posInt(dims.height)) {
+    problems.push(`"dimensions" must have positive integer "width" and "height" (in cells)`);
   }
+  if (!Array.isArray(file?.rows) || file.rows.length === 0) problems.push(`"rows" must be a non-empty array of strings`);
+  if (problems.length) throw new MapValidationError(name, problems);
 
   const rows = file.rows;
-  const width = rows[0].length;
-  const height = rows.length;
+  const { width, height } = dims;
+  if (rows.length !== height) problems.push(`"rows" has ${rows.length} rows, dimensions.height is ${height}`);
   rows.forEach((r, y) => {
     if (typeof r !== "string") problems.push(`row ${y} is not a string`);
-    else if (r.length !== width) problems.push(`row ${y} has ${r.length} characters, expected ${width} (same as row 0)`);
+    else if (r.length !== width) problems.push(`row ${y} has ${r.length} characters, dimensions.width is ${width}`);
   });
 
   const legend: Record<string, CellTypeName> = { ...DEFAULT_LEGEND, ...(file.legend ?? {}) };
@@ -92,9 +95,15 @@ export function buildMap(file: MapFile): MapModel {
   for (const c of file.cameras ?? []) {
     if (camIds.has(c.id)) problems.push(`duplicate camera id "${c.id}"`);
     camIds.add(c.id);
-    if (!(c.x >= 0 && c.y >= 0 && c.x <= width && c.y <= height)) {
-      problems.push(`camera "${c.id}" at (${c.x}, ${c.y}) is outside the ${width}×${height} grid`);
+    const { position: p, orientation: o, lens: l } = c;
+    if (!p || !o || !l) {
+      problems.push(`camera "${c.id}" needs "position", "orientation" and "lens" blocks`);
+      continue;
     }
+    if (!(p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height)) {
+      problems.push(`camera "${c.id}" at (${p.x}, ${p.y}) is outside the ${width}×${height} grid`);
+    }
+    if (!(l.fov > 0 && l.fov <= 180 && l.range > 0)) problems.push(`camera "${c.id}" lens needs 0 < fov <= 180 and range > 0`);
   }
 
   if (problems.length) throw new MapValidationError(name, problems);
@@ -103,8 +112,8 @@ export function buildMap(file: MapFile): MapModel {
     name: file.name,
     width,
     height,
-    cellSize: file.cellSize ?? 0.5,
-    wallHeight: file.wallHeight ?? 3,
+    cellSize: dims.cellSize ?? 0.5,
+    wallHeight: dims.wallHeight ?? 3,
     cells,
     walkable,
     opaque,

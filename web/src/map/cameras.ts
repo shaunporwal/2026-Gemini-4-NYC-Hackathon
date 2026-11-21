@@ -13,25 +13,27 @@ export function yawToDir(yawDeg: number): { dx: number; dy: number } {
  */
 export function computeVisibleCells(map: MapModel, cam: CameraDef): Uint32Array {
   const { width, height, walkable } = map;
-  const dir = yawToDir(cam.yaw);
-  const cosHalf = Math.cos(((cam.fov / 2) * Math.PI) / 180);
+  const { x: cx, y: cy } = cam.position;
+  const { range, fov } = cam.lens;
+  const dir = yawToDir(cam.orientation.yaw);
+  const cosHalf = Math.cos(((fov / 2) * Math.PI) / 180);
   const out: number[] = [];
 
-  const x0 = Math.max(0, Math.floor(cam.x - cam.range));
-  const x1 = Math.min(width - 1, Math.ceil(cam.x + cam.range));
-  const y0 = Math.max(0, Math.floor(cam.y - cam.range));
-  const y1 = Math.min(height - 1, Math.ceil(cam.y + cam.range));
+  const x0 = Math.max(0, Math.floor(cx - range));
+  const x1 = Math.min(width - 1, Math.ceil(cx + range));
+  const y0 = Math.max(0, Math.floor(cy - range));
+  const y1 = Math.min(height - 1, Math.ceil(cy + range));
 
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       const i = y * width + x;
       if (!walkable[i]) continue;
-      const vx = x + 0.5 - cam.x;
-      const vy = y + 0.5 - cam.y;
+      const vx = x + 0.5 - cx;
+      const vy = y + 0.5 - cy;
       const dist = Math.hypot(vx, vy);
-      if (dist > cam.range) continue;
+      if (dist > range) continue;
       if (dist > 0.5 && (vx * dir.dx + vy * dir.dy) / dist < cosHalf) continue;
-      if (hasLineOfSight(map, cam.x, cam.y, x + 0.5, y + 0.5)) out.push(i);
+      if (hasLineOfSight(map, cx, cy, x + 0.5, y + 0.5)) out.push(i);
     }
   }
   return Uint32Array.from(out);
