@@ -88,6 +88,13 @@
     constructor(layout, opts) {
       opts = opts || {};
       this.L = layout;
+      // Awareness uses its own randomness so cues cannot change placement or fire.
+      this.awareness = opts.awareness || null;
+      this.cueDelivered = false;
+      this.horizonSeconds = opts.horizonSeconds;
+      this.awarenessEvents = [];
+      this.familiarDist = new Float64Array(layout.width * layout.height);
+      const randAwareness = mulberry32((opts.seed || 7) * 3571 + 17);
       // A pre-rasterized voxel map supplies terrain and exact spawn cells.
       const grid = opts.grid;
       this.walkable = grid?.walkable;
@@ -162,7 +169,7 @@
         this.occ[i] = this.people.length;
         this.people.push({
           i, state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10),
-          queueOpening: -1, queueStreakSeconds: 0
+          queueOpening: -1, queueStreakSeconds: 0, knowsSecond: false, cueResponse: randAwareness()
         });
       };
       if (grid) grid.spawnCells.forEach(spawn);
@@ -223,6 +230,7 @@
       this.spreadFire();
       this.diffuseSmoke();
       if (this.dirty || this.tick % 2 === 0) this.computeDist();
+      this.deliverCue();
       this.movePeople();
       this.checkEnd();
     }
@@ -257,10 +265,18 @@
 
     /* Dijkstra from all open exits. Cost rises with smoke and near fire. */
     computeDist() {
-      const { N, type, fire, smoke, dist, nearFire, adj } = this;
+      const { N, fire, nearFire, adj } = this;
       this.dirty = false;
       nearFire.fill(0);
       for (let i = 0; i < N; i++) if (fire[i]) for (const e of adj[i]) nearFire[e.j] = 1;
+      this.fillDistances(this.dist, this.awareness
+        ? [this.awareness.familiar, this.awareness.second] : null);
+      if (this.awareness) this.fillDistances(this.familiarDist, [this.awareness.familiar]);
+    }
+
+    /* Each knowledge group shares a field. Physical exits stay open. */
+    fillDistances(dist, knownIds) {
+      const { N, type, fire, smoke, nearFire, adj } = this;
       dist.fill(Infinity);
       const hk = [], hv = [];                                   // binary min-heap: keys, cells
       const push = (k, v) => {
@@ -286,7 +302,7 @@
         }
         return top;
       };
-      for (let i = 0; i < N; i++) if (type[i] === EXIT && !fire[i]) { dist[i] = 0; push(0, i); }
+      for (let i = 0; i < N; i++) if (type[i] === EXIT && !fire[i] && (!knownIds || knownIds.includes(this.openings[this.tagOf[i]].ref.id))) { dist[i] = 0; push(0, i); }
       while (hk.length) {
         const k = hk[0], i = pop();
         if (k > dist[i]) continue;
@@ -298,10 +314,24 @@
       }
     }
 
-    trapped(p) { return this.dist[p.i] === Infinity; }
+    deliverCue() {
+      const a = this.awareness;
+      if (!a || this.cueDelivered || !Number.isFinite(a.cueSeconds)) return;
+      if ((this.tick - this.alarmTick) * DT < a.cueSeconds) return;
+      this.cueDelivered = true;
+      for (const [index, p] of this.people.entries()) {
+        if (p.state !== ACTIVE || p.cueResponse >= a.reception) continue;
+        p.knowsSecond = true;
+        this.awarenessEvents.push({ person: index + 1, seconds: this.tick * DT, exit: a.second });
+      }
+    }
+
+    distanceFor(p) { return this.awareness && !p.knowsSecond ? this.familiarDist : this.dist; }
+
+    trapped(p) { return this.distanceFor(p)[p.i] === Infinity; }
 
     /* With a route: go down the distance field. Without: go to cleaner air. */
-    score(p, i) { return this.trapped(p) ? this.smoke[i] + this.nearFire[i] : this.dist[i]; }
+    score(p, i) { return this.trapped(p) ? this.smoke[i] + this.nearFire[i] : this.distanceFor(p)[i]; }
 
     leave(p, state) {
       p.state = state; this.occ[p.i] = -1; this.lastProgress = this.tick;
@@ -315,16 +345,16 @@
      * the chain. A blocker on the approach to an open threshold can anchor it,
      * even on a tick when the threshold itself has just cleared. The routing
      * score strictly decreases along every link, so the trace cannot cycle. */
-    queueAt(cell, blocker) {
+    queueAt(cell, blocker, dist = this.dist) {
       if (this.tagOf[cell] >= 0) return this.tagOf[cell];
       while (blocker >= 0) {
         if (this.tagOf[blocker] >= 0) return this.tagOf[blocker];
         if (this.occ[blocker] < 0) break;
-        let next = -1, cost = this.dist[blocker];
+        let next = -1, cost = dist[blocker];
         for (const e of this.adj[blocker]) {
-          if (this.dist[e.j] < cost && this.canStep(e)) {
+          if (dist[e.j] < cost && this.canStep(e)) {
             next = e.j;
-            cost = this.dist[e.j];
+            cost = dist[e.j];
           }
         }
         blocker = next;
@@ -342,10 +372,11 @@
     }
 
     movePeople() {
-      const { type, fire, smoke, dist, occ, adj } = this;
+      const { type, fire, smoke, occ, adj } = this;
       for (const q of this.doorQueues) q.waiting = 0;
-      const order = this.people.filter(p => p.state === ACTIVE).sort((a, b) => dist[a.i] - dist[b.i]);
+      const order = this.people.filter(p => p.state === ACTIVE).sort((a, b) => this.distanceFor(a)[a.i] - this.distanceFor(b)[b.i]);
       for (const p of order) {
+        const dist = this.distanceFor(p);
         const c = p.i, previousQueue = p.queueOpening;
         p.queueOpening = -1;
         p.dose += smoke[c];
@@ -365,7 +396,7 @@
         }
         if (best < 0) {
           if (blocker >= 0 && Number.isFinite(dist[c])) {
-            p.queueOpening = this.queueAt(c, blocker);
+            p.queueOpening = this.queueAt(c, blocker, dist);
             if (p.queueOpening >= 0) {
               const q = this.doorQueues[p.queueOpening];
               p.queueStreakSeconds = (previousQueue === p.queueOpening ? p.queueStreakSeconds : 0) + DT;
@@ -394,7 +425,13 @@
 
     checkEnd() {
       const { active, trapped } = this.counts();
+      if (Number.isFinite(this.horizonSeconds) && this.alarmTick >= 0) {
+        this.done = active === 0 || (this.tick - this.alarmTick) * DT >= this.horizonSeconds;
+        return;
+      }
       if (active === 0) this.done = true;
+      else if (this.awareness && !this.cueDelivered && Number.isFinite(this.awareness.cueSeconds)
+        && this.people.some(p => p.state === ACTIVE && p.cueResponse < this.awareness.reception)) this.stuck = 0;
       else if (trapped === active) { if (++this.stuck > 60) this.done = true; } else this.stuck = 0;
       if (this.tick - this.lastProgress > 400 || this.tick > 8000) this.done = true;
     }
@@ -404,7 +441,7 @@
       const { active, trapped } = this.counts();
       return { total: this.people.length, out: this.out, down: this.down, trapped, active,
                lost: this.down + active, ticks: this.tick,
-               seconds: Math.round((this.done ? this.lastOutTick : this.tick) * DT),
+               seconds: Math.round((this.done && !Number.isFinite(this.horizonSeconds) ? this.lastOutTick : this.tick) * DT),
                exitUse: Object.assign({}, this.exitUse) };
     }
 

@@ -1,7 +1,10 @@
 # render/ (owner: three.js teammate)
-The three.js voxel scene. It reads `MapModel` (and later `SimState`), draws them, and turns user input into intents.
 
-`scene.ts` is a **starter renderer** written against the map module. Keep it, replace it or rewrite it; only the interface below matters.
+This document covers the TypeScript grid-map app. The current Malin Fire Twin controls and replay are documented in [the demo guide](../../../prototype/README.md).
+
+The three.js voxel scene reads the grid map and displays people and hazard arrays provided by the simulation adapter.
+
+`scene.ts` implements the grid-map view. The dedicated Malin demo renderer is `prototype/render3d.js`.
 
 ## Interface with map/
 | Render gets | From | Notes |

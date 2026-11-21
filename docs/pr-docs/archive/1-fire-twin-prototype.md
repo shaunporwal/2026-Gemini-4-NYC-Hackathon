@@ -1,5 +1,8 @@
 # PR 1: Fire Twin prototype + one-screen UI
 
+Historical implementation record. Current launch instructions and controls are in [the demo guide](../../../prototype/README.md).
+
+
 Status: done
 
 Branch: `add-fire-twin-prototype`

@@ -1,5 +1,8 @@
 # Contracts: shared types between modules
 
+These contracts govern the TypeScript grid-map and backend integration. See [the current Fire Twin demo guide](../prototype/README.md) for launching the Malin scene and matched awareness replay.
+
+
 This is **the contract between teammates**. It mirrors `web/src/shared/types.ts`, the file every
 module imports its cross-module types from. Keep the two identical.
 

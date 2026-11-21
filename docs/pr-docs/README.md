@@ -4,7 +4,7 @@ One doc per PR: goal, scope, checklist, known limits, smoke tests. The PR descri
 
 | PR | Doc | Status |
 |---|---|---|
-| 2 | [Video and floor plan -> twin](2-video-to-twin.md) | in progress |
+| 2 | [Video and floor plan -> twin](2-video-to-twin.md) | merged; current demo includes later simulation additions |
 
 ## Archive
 

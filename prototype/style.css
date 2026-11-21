@@ -134,3 +134,10 @@ label { display: block; color: var(--muted); font-size: var(--fs-small); }
   header select { flex: none; width: var(--side-w); }
   h1 { flex: 1; }
 }
+
+#awarenessPanel { border-bottom: 1px solid var(--line-strong); padding-bottom: 10px; margin-bottom: 10px; }
+#awarenessPanel h2 { font-size: var(--fs); margin: 4px 0 8px; }
+#awarenessPanel label { display: block; margin-bottom: 6px; }
+#awarenessPanel select, #awarenessPanel input { width: 100%; }
+#awarenessPanel p, #awarenessEvents { font-size: var(--fs-small); color: var(--muted); }
+#awarenessEvents { max-height: 130px; overflow-y: auto; }

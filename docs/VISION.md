@@ -1,5 +1,12 @@
 # Vision — Fire Evacuation Digital Twin
 
+## Current demonstration
+
+The implemented team demo is [Fire Twin in prototype/](../prototype/README.md). It loads the Gemini-derived Malin floor plan, offers 2D/3D views, simulates fire and evacuation, measures doorway queues, and compares the same crowd with and without learning a second exit. Gemini accepts floor-plan and walkthrough media, writes PA text and proposes layout fixes.
+
+The live-camera flow below describes the broader integration goal. Current simulation results are outcomes of a demonstration model; geometry, occupancy and behavioral assumptions require verification.
+
+
 ## One-liner
 A live voxel **digital twin** of a building: cameras feed real crowd density into the
 model, and anyone can **tap anywhere on the map to start a fire** and watch how the crowd

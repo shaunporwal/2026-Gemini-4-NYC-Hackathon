@@ -173,7 +173,7 @@
           put(heads, np++, x, y, FLOOR_T, 0.01, 0.01, 0.01, COLOR.head);
         } else {
           put(bodies, np, x, y, FLOOR_T, PERSON.bodyH, PERSON.bodyW, PERSON.bodyW, color);
-          put(heads, np++, x, y, FLOOR_T + PERSON.bodyH, PERSON.head, PERSON.head, PERSON.head, COLOR.head);
+          put(heads, np++, x, y, FLOOR_T + PERSON.bodyH, PERSON.head, PERSON.head, PERSON.head, p.knowsSecond ? 0xc4a0ff : COLOR.head);
         }
       }
       done(bodies, np); done(heads, np);

@@ -25,6 +25,25 @@
 <div id="stats"></div>
 
 <aside>
+  <section id="awarenessPanel">
+    <h2>Learn a second exit</h2>
+    <label>Familiar exit <select id="familiarExit"></select></label>
+    <label>Second exit <select id="secondExit"></select></label>
+    <div class="row">
+      <label>Announce after (s) <input id="cueSeconds" type="number" min="0" max="120" step="0.5" value="5"></label>
+      <label>Receive cue (%) <input id="cueReception" type="number" min="0" max="100" value="100"></label>
+    </div>
+    <button id="compareAwareness">Compare same crowd</button>
+    <p>Start a fire, then compare. Everyone starts knowing the familiar exit. The selected share of occupants still inside learns the second exit when the cue arrives.</p>
+    <div id="awarenessResults" hidden>
+      <label>Show in 3D / 2D <select id="awarenessView"><option value="guided">With announcement</option><option value="baseline">Familiar exit only</option></select></label>
+      <p id="awarenessStatus" aria-live="polite"></p>
+      <table><thead><tr><th>Measure</th><th>Familiar only</th><th>With cue</th></tr></thead><tbody id="awarenessMetrics"></tbody></table>
+      <details><summary>Who learned the exit</summary><div id="awarenessEvents"></div></details>
+      <p>In 3D, purple heads mark people who learned the second exit.</p>
+      <p id="awarenessConfig"></p>
+    </div>
+  </section>
   <section id="doorQueues" aria-labelledby="queueTitle">
     <div class="queueHead">
       <h2 id="queueTitle">Doorway queues</h2>

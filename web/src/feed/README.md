@@ -1,4 +1,10 @@
 # feed/ (owner: TBD, same person as server/)
+
+The responsibilities below describe the modular integration target. The current grid app wires simulation and controls through `web/src/main.ts` and `web/src/crowd/voxelSimulation.ts`.
+
+
+This document covers the TypeScript grid-map app. The current Malin Fire Twin controls and replay are documented in [the demo guide](../../../prototype/README.md).
+
 Browser side of the live Gemini feed. Server and wire format: `server/README.md`.
 
 - WebSocket client to `ws://<server>/ws` → stores the latest `Observation` per `cameraId` in `state.observations`.
