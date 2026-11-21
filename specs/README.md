@@ -6,7 +6,7 @@ events, so it finds faults that need unlucky timing: a tap during a permission p
 | Spec | Models | Result |
 |---|---|---|
 | `PhoneCamera.tla` | The phone page `server/camera.html`: pick room, start camera, send frames, stop, change room | As first written (`Fixed = FALSE`): 3 faults. With the session number (`Fixed = TRUE`): no fault in 36,560 states |
-| `CaptureToTwin.tla` | The whole chain, linked: phone capture -> feed server -> simulation app, with a presenter who can change the layout and viewers who open copies of the page | As first wired (`Fixed = FALSE`): 2 faults. Now (`Fixed = TRUE`): no fault in 111,812 states |
+| `CaptureToTwin.tla` | The whole chain, linked: phone capture -> feed server -> simulation app, with a presenter who can change the layout and viewers who open copies of the page | As first wired (`Fixed = FALSE`): 2 faults. Now (`Fixed = TRUE`), with the Freeze button: no fault in 375,368 states |
 | `AppFlow.tla` + `no_dead_ends.py` | Every screen and every tap on the phone and the twin. The script reads TLC's full state graph and checks that every goal (11: each page, each view, camera live, fire running, run complete, fix ready, fresh sim) can be reached from EVERY reachable state | As first built: dead ends for all 11 goals (the camera page could not reach the twin; the twin could not reach the camera). Now: no dead end in 162 states |
 
 ## Faults found in the first version (2026-11-21)
@@ -25,6 +25,8 @@ Fix: a session number in `camera.html`. Each start and each stop makes a new ses
 |---|---|---|---|
 | `PlanIsThePresenters` | The presenter loads a layout; then anyone opens a second copy of the twin page | The copy sends its own default layout to the server: phones now pick from the wrong rooms | Only the presenter's page configures the server (`feed.js`) |
 | `PhoneToldTheTruth` | A phone picks a room; the presenter loads another layout; the phone sends a frame | The phone says the frame was sent, and the twin throws it away | The server's answer says if the room is on the plan; the phone says "pick again" (`app.py`, `camera.html`) |
+
+Added with the Freeze button: `FrozenTwinIsStill`. While the twin is frozen, no phone frame changes it, frames already on the way included.
 
 Also checked, and true in both versions: a camera can only start a fire in a room on screen; head counts do not change after the fire starts; a camera count only goes to a room on screen.
 

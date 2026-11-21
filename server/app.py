@@ -2,21 +2,25 @@
 Gemini live-feed server: phone cameras in, Observations out (docs/CONTRACTS.md).
 
 Phones POST JPEG frames (and short WAV clips) -> one worker per camera -> Decisions API on every
-frame -> Hydrogen only when crowding changes or on a heartbeat -> Observation pushed to every
+frame (incl. a fast count range) -> Hydrogen in the background when the range changes or on a heartbeat -> Observation to every
 browser on the WebSocket /ws. Camera ids and poses come from the map JSON (MAP env var).
 
 Run:   uvicorn app:app --host 0.0.0.0 --port 8000
 Phone: https://<your-tunnel>/camera?id=cam-hall-ne
 
 Env flags:
-  MAP=../web/public/maps/demo-hall.json   map whose cameras we serve
+  VENUE=malin     room mode (default): a preset in prototype/layouts.js or a layout .json; one phone per room
+  MAP=...json     grid mode instead: a schema-v2 map with posed cameras (positions in cells)
   BASELINE=1      Hydrogen on every frame, no Decisions gating (the comparison baseline)
-  HEARTBEAT_S=10  refresh positions at least this often even if nothing changed
+  HEARTBEAT_S=3   re-count at least this often while people are present
+  COUNT_CONF=0.7  Decisions' count range overrides a stale Hydrogen count at this confidence
+  WARMUP=1        one call per model at startup (avoids the cold-start first frame)
   SAVE_FRAMES=1   save frames + predictions to eval_frames/ (eval sessions only; off for the demo)
 """
 import asyncio
 import csv
 import json
+import math
 import os
 import re
 import time
@@ -25,16 +29,18 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import perception as P
-from geometry import MapInfo, jpeg_aspect
+from geometry import MapInfo, VenueInfo, jpeg_aspect, load_venue
 
 HERE = Path(__file__).parent
 MAP_PATH = Path(os.getenv("MAP", HERE.parent / "web" / "public" / "maps" / "demo-hall.json"))
 BASELINE = os.getenv("BASELINE", "0") == "1"
-HEARTBEAT_S = float(os.getenv("HEARTBEAT_S", "10"))
+HEARTBEAT_S = float(os.getenv("HEARTBEAT_S", "3"))
+COUNT_CONF = float(os.getenv("COUNT_CONF", "0.7"))  # trust Decisions' count range over a stale Hydrogen count above this
+WARMUP = os.getenv("WARMUP", "1") == "1"
 SAVE_FRAMES = os.getenv("SAVE_FRAMES", "0") == "1"
 HAZARD_CONF = float(os.getenv("HAZARD_CONF", "0.7"))
 HAZARD_STREAK = int(os.getenv("HAZARD_STREAK", "2"))  # consecutive frames before we raise a hazard
@@ -55,7 +61,10 @@ def phone_url() -> str | None:
         return None
     return base.rstrip("/") + "/camera" if base.startswith("https://") else None
 
-MAP = MapInfo(MAP_PATH)
+# Room mode (default): VENUE = a preset in prototype/layouts.js or a layout .json; each phone picks a room.
+# Grid mode: set MAP (and VENUE="") to use a schema-v2 map with posed cameras (positions in cells).
+VENUE = os.getenv("VENUE", "" if os.getenv("MAP") else "malin")
+MAP = VenueInfo(load_venue(VENUE, HERE.parent / "prototype" / "layouts.js")) if VENUE else MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
 events: dict[str, asyncio.Event] = {}
 cams: dict[str, dict] = {}  # per-camera working state
@@ -75,7 +84,9 @@ def ensure_cam(cam_id: str):
         "exits": [],  # exit cell groups this camera sees (flat indices)
         "questions": P.build_questions(False),
         "count": 0, "people": [], "summary": None,
-        "crowding": 0.0, "bucket": None, "last_hydrogen": 0.0,
+        "crowding": 0.0, "present": False, "last_hydrogen": 0.0,
+        "bucket": None, "bucket_conf": 0.0,  # Decisions' fast count range, every frame
+        "h_count": 0, "h_people": [], "h_valid": False, "h_busy": False, "h_dirty": False,  # last Hydrogen result
         "hazard": "none", "hazard_conf": 0.0, "hazard_streak": 0,
         "exit_p": None,  # P(exit blocked) from the last frame, if the camera sees an exit
         "audio": None, "audio_conf": 0.0, "audio_ts": 0.0,
@@ -92,7 +103,7 @@ def refresh_pose(cam_id: str):
     c = cams[cam_id]
     c["exits"] = MAP.visible_exits(cam_id)
     # A room of the twin (not a map camera) has doors: always ask if the way out is blocked.
-    c["questions"] = P.build_questions(bool(c["exits"]) or cam_id not in MAP.cameras)
+    c["questions"] = P.build_questions(bool(c["exits"]) or cam_id not in MAP.cameras or isinstance(MAP, VenueInfo))
 
 
 def observation(cam_id: str) -> dict:
@@ -108,13 +119,15 @@ def observation(cam_id: str) -> dict:
         evs.append(c["audio"])
     o = {
         "cameraId": cam_id,
+        "pose": c.get("pose"),
+        **({"room": MAP.cameras[cam_id]["room"]} if "room" in MAP.cameras.get(cam_id, {}) else {}),
         "timestamp": int((c["stream"]["lastFrame"] or time.time()) * 1000),
         "peopleCount": c["count"],
         "density": P.DENSITY[max(0, min(4, round(c["crowding"])))],
         "events": evs,
         "people": c["people"],
         "hazards": [{"type": c["hazard"], "confidence": round(c["hazard_conf"], 2)}] if c["hazard"] != "none" else [],
-        "exits": [{"cells": g, "blocked": blocked, "p": round(c["exit_p"], 2)} for g in c["exits"]]
+        "exits": [{**g, "blocked": blocked, "p": round(c["exit_p"], 2)} for g in c["exits"]]
         if c["exit_p"] is not None else [],
         "stream": dict(c["stream"]),
     }
@@ -143,11 +156,25 @@ def log_metrics(row: dict):
         w.writerow(row)
 
 
+def read_pose(q) -> dict | None:
+    """Where the phone stands and looks, from the frame's query string: x, y in layout cells; yaw in degrees,
+    0 = north on the plan (smaller y), 90 = east (larger x). None if the phone did not say."""
+    try:
+        x, y, yaw = float(q["x"]), float(q["y"]), float(q["yaw"])
+    except (KeyError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (x, y, yaw)):
+        return None
+    return {"x": round(x, 1), "y": round(y, 1), "yaw": round(yaw % 360)}
+
+
 def save_eval_frame(cam_id, ts, jpeg, c):
     d = EVAL_DIR / cam_id
     d.mkdir(parents=True, exist_ok=True)
     name = f"{int(ts * 1000)}.jpg"
     (d / name).write_bytes(jpeg)
+    if c.get("pose"):
+        (d / f"{int(ts * 1000)}.pose.json").write_text(json.dumps(c["pose"]))
     pred = EVAL_DIR / "predictions.csv"
     new = not pred.exists()
     with pred.open("a", newline="") as f:
@@ -158,6 +185,70 @@ def save_eval_frame(cam_id, ts, jpeg, c):
                     c["exit_p"], "baseline" if BASELINE else "gated"])
 
 
+def active_streams() -> int:
+    return sum(1 for x in cams.values() if x["stream"]["lastFrame"] and time.time() - x["stream"]["lastFrame"] < 5)
+
+
+def reconcile(c: dict):
+    """Shown count = the last Hydrogen count, unless Decisions is confident the scene is now outside it
+    (for example the phone swung from a busy table to one person). Then show the edge of Decisions' range
+    and drop the stale positions until the next Hydrogen result."""
+    if not c["present"]:
+        c["count"], c["people"] = 0, []
+        c["h_valid"] = False  # an old Hydrogen count must not come back when people return
+        return
+    lo, hi = P.COUNT_BUCKETS.get(c["bucket"], (0, 999))
+    if not c["h_valid"]:  # no Hydrogen count for this scene yet: show the bottom of Decisions' range
+        c["count"], c["people"] = (lo if c["bucket"] else 0), []
+    elif c["bucket_conf"] >= COUNT_CONF and not lo <= c["h_count"] <= hi:
+        c["count"], c["people"] = max(lo, min(hi, c["h_count"])), []
+    else:
+        c["count"], c["people"] = c["h_count"], c["h_people"]
+
+
+def launch_hydrogen(cam_id: str, jpeg: bytes, recv_ts: float):
+    c = cams[cam_id]
+    c["h_busy"], c["h_dirty"] = True, False
+    asyncio.create_task(hydrogen_job(cam_id, jpeg, recv_ts))
+
+
+async def hydrogen_job(cam_id: str, jpeg: bytes, recv_ts: float):
+    """Exact count + positions + summary for one frame. Gated mode runs this in the background (one per
+    camera at a time), so a 4-10 s Hydrogen call never holds up the ~0.5 s Decisions updates."""
+    c = cams[cam_id]
+    try:
+        h = await asyncio.to_thread(P.run_hydrogen, jpeg)
+        c["stream"]["hydrogenCalls"] += 1
+        aspect = jpeg_aspect(jpeg)
+        pts = [MAP.project(cam_id, u, v, aspect) for u, v in h["people"]]
+        if BASELINE:
+            c["present"] = True
+        if c["present"]:  # everyone may have left while we were counting
+            c["h_count"], c["h_people"], c["h_valid"] = h["count"], [p for p in pts if p], True
+        c["debug"] = {"jpeg": jpeg, "points": h["people"], "count": h["count"], "summary": h["summary"],
+                      "ts": time.time()}  # last counted frame, memory only, for /debug
+        reconcile(c)
+        c["summary"] = h["summary"] or c["summary"]
+        hyd_ms, ok, err = h["ms"], 1, None
+    except Exception as e:
+        hyd_ms, ok, err = 0, 0, f"{type(e).__name__}: {e}"[:300]
+        c["stream"].update(ok=False, error=err)
+    finally:
+        c["last_hydrogen"] = time.time()
+        c["h_busy"] = False
+    if not BASELINE:
+        await publish(cam_id)
+        log_metrics({
+            "ts": round(time.time(), 3), "camera": cam_id, "mode": "gated", "kind": "hydrogen",
+            "active_streams": active_streams(), "decision_ms": 0, "hydrogen_ms": hyd_ms, "called_hydrogen": 1,
+            "end_to_end_ms": round((time.time() - recv_ts) * 1000), "count": c["count"],
+            "crowding": round(c["crowding"], 2), "hazard": c["hazard"], "exit_p": c["exit_p"], "ok": ok,
+        })
+        # the scene changed while we were counting: count the newest frame right away
+        if c["h_dirty"] and c["present"] and cam_id in latest_frame:
+            launch_hydrogen(cam_id, *latest_frame[cam_id])
+
+
 async def camera_worker(cam_id: str):
     c = cams[cam_id]
     ev = events[cam_id]
@@ -165,11 +256,13 @@ async def camera_worker(cam_id: str):
         await ev.wait()
         ev.clear()
         jpeg, recv_ts = latest_frame[cam_id]  # always the newest frame; stale ones are dropped
-        dec_ms = hyd_ms = 0
+        dec_ms = 0
         called_h = False
         try:
             if BASELINE:
-                need_h = True
+                c["present"] = True
+                await hydrogen_job(cam_id, jpeg, recv_ts)  # baseline: Hydrogen inline on every frame
+                called_h = True
             else:
                 d = await asyncio.to_thread(P.run_decisions, jpeg, c["questions"])
                 c["stream"]["decisionCalls"] += 1
@@ -188,25 +281,17 @@ async def camera_worker(cam_id: str):
 
                 c["exit_p"] = d.get("exit_blocked")
 
-                bucket = round(d["crowding"])
-                if d["people_present"] < 0.5:
-                    c["count"], c["people"] = 0, []
-                    need_h = False
-                else:
-                    need_h = (bucket != c["bucket"]) or (time.time() - c["last_hydrogen"] > HEARTBEAT_S)
-                c["bucket"] = bucket
-
-            if need_h:
-                h = await asyncio.to_thread(P.run_hydrogen, jpeg)
-                c["stream"]["hydrogenCalls"] += 1
-                called_h = True
-                hyd_ms = h["ms"]
-                c["count"] = h["count"]
-                c["summary"] = h["summary"] or c["summary"]
-                aspect = jpeg_aspect(jpeg)
-                pts = [MAP.project(cam_id, u, v, aspect) for u, v in h["people"]]
-                c["people"] = [p for p in pts if p]  # unknown camera or above the horizon -> dropped
-                c["last_hydrogen"] = time.time()
+                was_present = c["present"]
+                c["present"] = d["people_present"] >= 0.5
+                changed = d["count_bucket"] != c["bucket"]
+                c["bucket"], c["bucket_conf"] = d["count_bucket"], d["count_conf"]
+                reconcile(c)  # nobody there -> 0 and no Hydrogen
+                if c["present"] and (not was_present or changed or time.time() - c["last_hydrogen"] > HEARTBEAT_S):
+                    if c["h_busy"]:
+                        c["h_dirty"] = True  # re-count as soon as the current call finishes
+                    else:
+                        launch_hydrogen(cam_id, jpeg, recv_ts)
+                        called_h = True
 
             latency = round((time.time() - recv_ts) * 1000)
             c["stream"].update(ok=True, latencyMs=latency, error=None)
@@ -217,9 +302,8 @@ async def camera_worker(cam_id: str):
         await publish(cam_id)
         log_metrics({
             "ts": round(time.time(), 3), "camera": cam_id, "mode": "baseline" if BASELINE else "gated",
-            "active_streams": sum(1 for x in cams.values()
-                                  if x["stream"]["lastFrame"] and time.time() - x["stream"]["lastFrame"] < 5),
-            "decision_ms": dec_ms, "hydrogen_ms": hyd_ms, "called_hydrogen": int(called_h),
+            "kind": "frame", "active_streams": active_streams(),
+            "decision_ms": dec_ms, "hydrogen_ms": 0, "called_hydrogen": int(called_h),
             "end_to_end_ms": latency, "count": c["count"], "crowding": round(c["crowding"], 2),
             "hazard": c["hazard"], "exit_p": c["exit_p"], "ok": int(c["stream"]["ok"]),
         })
@@ -227,10 +311,26 @@ async def camera_worker(cam_id: str):
             save_eval_frame(cam_id, recv_ts, jpeg, c)
 
 
+async def warmup():
+    """One call to each model at startup, so the first phone frame doesn't pay the 10-20 s cold start."""
+    test = HERE / "test.jpg"
+    if not WARMUP or not test.exists():
+        return
+    jpeg = test.read_bytes()
+    for name, fn in [("decisions", lambda: P.run_decisions(jpeg, P.build_questions(False))),
+                     ("hydrogen", lambda: P.run_hydrogen(jpeg))]:
+        try:
+            r = await asyncio.to_thread(fn)
+            print(f"warmup {name}: {r['ms']} ms", flush=True)
+        except Exception as e:
+            print(f"warmup {name} failed: {type(e).__name__}: {e}"[:300], flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for cam_id in MAP.cameras:
         ensure_cam(cam_id)
+    asyncio.create_task(warmup())
     yield
     for t in workers.values():
         t.cancel()
@@ -255,6 +355,7 @@ async def post_frame(cam_id: str, request: Request):
     now = time.time()
     latest_frame[cam_id] = (jpeg, now)
     c = cams[cam_id]
+    c["pose"] = read_pose(request.query_params)
     c["stream"]["lastFrame"] = now
     c["stream"]["frames"] += 1
     events[cam_id].set()
@@ -279,6 +380,24 @@ async def post_audio(cam_id: str, request: Request):
         return {"cameraId": cam_id, **a}
     except Exception as e:
         return {"cameraId": cam_id, "error": f"{type(e).__name__}: {e}"[:300]}
+
+
+warmed = {"done": False}
+
+
+def use_venue(layout: dict):
+    """Room mode follows the layout that is on the presenter's screen (not a preset read at startup).
+    A phone names its room by the room's NAME, so each room is listed under its name as well as its slug."""
+    global MAP
+    try:
+        venue = VenueInfo(layout)
+    except (KeyError, TypeError, ValueError):
+        return
+    for cam in list(venue.cameras.values()):
+        venue.cameras[cam["room"]] = cam
+    MAP = venue
+    for cam_id in list(cams):
+        refresh_pose(cam_id)
 
 
 def is_local(request: Request) -> bool:
@@ -308,6 +427,10 @@ async def post_twin(request: Request):
     if isinstance(lay, dict) and len(json.dumps(lay)) <= LAYOUT_MAX_BYTES:
         twin_layout.clear()
         twin_layout.update(lay)
+        use_venue(lay)
+    if P.has_key() and not warmed["done"]:   # the key arrives after startup: warm the models up now
+        warmed["done"] = True
+        asyncio.create_task(warmup())
     return {"ready": P.has_key(), "rooms": len(rooms)}
 
 
@@ -328,6 +451,13 @@ async def latest_jpeg(cam_id: str):
 
 
 CAPTURE_FILE = re.compile(r"^\d+\.jpg$")
+
+
+def saved_pose(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
 CAPTURES_PER_ROOM = 12
 
 
@@ -339,7 +469,7 @@ async def list_captures():
         for d in sorted(p for p in EVAL_DIR.iterdir() if p.is_dir()):
             files = sorted((f.name for f in d.iterdir() if CAPTURE_FILE.match(f.name)), reverse=True)[:CAPTURES_PER_ROOM]
             if files:
-                out[d.name] = [{"file": f, "t": int(f[:-4])} for f in files]
+                out[d.name] = [{"file": f, "t": int(f[:-4]), "pose": saved_pose(d / (f[:-4] + ".pose.json"))} for f in files]
     return {"saving": SAVE_FRAMES, "rooms": out}
 
 
@@ -397,6 +527,37 @@ async def get_observations():
             "observations": observations}
 
 
+def local_only(request: Request) -> bool:
+    """/debug shows camera images: only from this laptop, never through the tunnel (it adds cf-connecting-ip)."""
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1", "localhost") and "cf-connecting-ip" not in request.headers
+
+
+@app.get("/debug/frame/{cam_id}")
+async def debug_frame(cam_id: str, request: Request):
+    d = cams.get(cam_id, {}).get("debug")
+    if not local_only(request) or not d:
+        return Response(status_code=404)
+    return Response(d["jpeg"], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/debug/info/{cam_id}")
+async def debug_info(cam_id: str, request: Request):
+    c = cams.get(cam_id)
+    if not local_only(request) or not c or not c.get("debug"):
+        return Response(status_code=404)
+    d = c["debug"]
+    return {"points": d["points"], "hydrogenCount": d["count"], "summary": d["summary"], "age_s": round(time.time() - d["ts"], 1),
+            "shownCount": c["count"], "range": c["bucket"], "rangeConf": round(c["bucket_conf"], 2)}
+
+
+@app.get("/debug")
+async def debug_page(request: Request):
+    if not local_only(request):
+        return Response(status_code=404)
+    return FileResponse(HERE / "debug.html")
+
+
 @app.get("/camera")
 async def camera_page():
     return FileResponse(HERE / "camera.html")
@@ -406,7 +567,7 @@ async def camera_page():
 async def index():
     return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms, "plan": plan,
             "phoneUrl": phone_url(),
-            "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
+            "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items() if v.get("id", k) == k},
             "ws": "/ws", "observations": "/observations"}
 
 

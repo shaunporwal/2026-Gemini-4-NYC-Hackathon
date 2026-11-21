@@ -7,6 +7,8 @@ heights in metres, yaw = compass degrees (0 = north = -y, 90 = east = +x), pitch
 """
 import json
 import math
+import re
+import subprocess
 from pathlib import Path
 
 # Mirrors DEFAULT_LEGEND in web/src/map/cellTypes.ts (schema v2). Only walls are opaque.
@@ -81,15 +83,15 @@ class MapInfo:
                 return False
         return True
 
-    def visible_exits(self, cam_id: str) -> list[list[int]]:
-        """Exit groups with at least one cell this camera can see."""
+    def visible_exits(self, cam_id: str) -> list[dict]:
+        """Exit groups with at least one cell this camera can see: [{"cells": [...]}] (exits have no ids here)."""
         cam = self.cameras.get(cam_id)
         if not cam:
             return []
         out = []
         for g in self.exit_groups:
             if any(self._in_view(cam, i % self.width + 0.5, i // self.width + 0.5) for i in g):
-                out.append(g)
+                out.append({"cells": g})
         return out
 
     def project(self, cam_id: str, u: float, v: float, aspect: float):
@@ -141,3 +143,59 @@ def jpeg_aspect(jpeg: bytes) -> float:
             continue
         i += 2 + int.from_bytes(jpeg[i + 2:i + 4], "big")
     return 0.75
+
+
+# ---------------------------------------------------------------- room mode (prototype layouts)
+
+def slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def load_venue(spec: str, layouts_js: Path) -> dict:
+    """spec = a preset name in prototype/layouts.js (e.g. "malin"), read with Node so there is one copy
+    of the layout, or a path to a layout JSON (for example one saved from the prototype's Setup panel)."""
+    if spec.endswith(".json"):
+        return json.loads(Path(spec).read_text(encoding="utf-8"))
+    js = f"const L=require({json.dumps(str(layouts_js))});const v=L[{json.dumps(spec)}];"          f"if(!v){{console.error('no preset '+{json.dumps(spec)}+'; have: '+Object.keys(L));process.exit(1)}}"          "process.stdout.write(JSON.stringify(v))"
+    try:
+        out = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8", check=True)
+    except FileNotFoundError:
+        raise SystemExit("VENUE needs Node.js to read prototype/layouts.js (or pass a .json layout path)")
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"VENUE={spec}: {e.stderr.strip()}")
+    return json.loads(out.stdout)
+
+
+class VenueInfo:
+    """A prototype layout (rooms, doors, exits; see prototype/sim.js). One camera per room: the phone says
+    which room it is in, so there is no camera pose and no room guessing. People get no floor positions;
+    the prototype places a room's count inside the room itself."""
+
+    def __init__(self, layout: dict):
+        self.name = layout["name"]
+        self.width = int(layout["width"])
+        self.exits = layout.get("exits", [])
+        self.cameras = {}
+        for r in layout["rooms"]:
+            cid = slug(r["name"])
+            self.cameras[cid] = {"id": cid, "name": r["name"], "room": r["name"],
+                                 "rect": (r["x"], r["y"], r["w"], r["h"])}
+
+    def visible_exits(self, cam_id: str) -> list[dict]:
+        """Exits on this room's walls (room rectangles include their walls): [{"id", "cells"}]."""
+        cam = self.cameras.get(cam_id)
+        if not cam:
+            return []
+        x, y, w, h = cam["rect"]
+        out = []
+        for e in self.exits:
+            if e["x"] < x + w and e["x"] + e["w"] > x and e["y"] < y + h and e["y"] + e["h"] > y:
+                cells = [(e["y"] + j) * self.width + e["x"] + i for j in range(e["h"]) for i in range(e["w"])]
+                out.append({"id": e["id"], "cells": cells})
+        return out
+
+    def project(self, cam_id, u, v, aspect):
+        return None  # no camera pose in room mode
+
+    def set_camera(self, c: dict):
+        raise KeyError("room mode has no camera poses")

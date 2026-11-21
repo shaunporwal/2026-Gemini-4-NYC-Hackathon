@@ -10,7 +10,7 @@
     color-scheme: dark;
     --bg: #0c0f14; --panel: #11151c; --control: #1b212c; --line: #323b4a; --text: #e6e9ee; --muted: #9aa4b2;
     --accent: #2b6cb0; --focus: #7cc4ff; --ok: #4ade80; --bad: #ff6b61; --video: #000; --scrim: rgba(0, 0, 0, .62);
-    --gutter: 12px; --gap: 8px; --tap: 48px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
+    --gutter: 12px; --gap: 8px; --tap: 48px; --mini-h: 132px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100dvh; margin: 0; overflow: hidden; }
@@ -53,10 +53,23 @@
   #plan text.name { fill: var(--muted); font-weight: 500; }
   #legend { color: var(--muted); font-size: var(--fs-small); }
 
+  /* Where the phone stands and faces: a small map of the room. Tap = your place. Drag = where you face. */
+  #spot { flex: none; display: flex; align-items: center; gap: var(--gutter); }
+  /* Sized to the room's own shape (set in drawMini), as large as the row allows: a finger must hit a spot in it. */
+  #mini { flex: none; height: var(--mini-h); max-width: 55%; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--panel); touch-action: none; }
+  #mini rect { fill: var(--control); stroke: var(--line); stroke-width: 0.25; }
+  #mini rect.here { fill: var(--panel); stroke: var(--focus); stroke-width: 0.35; }
+  #mini .me { fill: var(--accent); }
+  #mini .cone { fill: var(--accent); opacity: .45; }
+  #spotText { margin: 0; color: var(--muted); font-size: var(--fs-small); }
+  #spotText b { color: var(--text); }
+
   /* Step 2: the camera. */
   #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
   #view { flex: 1; min-height: 0; position: relative; border-radius: var(--radius); overflow: hidden; background-color: var(--video); }
-  video, #poster { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* contain, not cover: the whole frame shows, so you see exactly what Gemini gets. */
+  video, #poster { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #zoom { position: absolute; top: var(--gap); right: var(--gap); min-width: var(--tap); padding: 0 12px; font-weight: 600; border-color: var(--focus); z-index: 1; }
   #poster { position: absolute; inset: 0; }
   /* What to do now. Over the last frame after a recording; over black before the first one. */
   #note { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gutter);
@@ -77,6 +90,30 @@
   .row { display: flex; gap: var(--gap); }
   .row > * { flex: 1 1 0; min-width: 0; }
   .file input { display: none; }
+  /* Landscape phone: the wide way to hold it for a whole room. Picture left at full height, controls right. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    body { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: var(--gutter);
+           padding-left: max(var(--gutter), env(safe-area-inset-left)); padding-right: max(var(--gutter), env(safe-area-inset-right)); }
+    h1 { display: none; }
+    #sub { justify-content: flex-end; }
+    #pick, #cam { grid-column: 1 / -1; }
+    #pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #plan { align-self: center; max-height: 100%; }
+    #legend { display: none; }
+    #use { grid-column: 1 / -1; }
+    #cam { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto minmax(0, 1fr); column-gap: var(--gutter); }
+    #view { grid-column: 1; grid-row: 1 / -1; }
+    #spot, #facts, #status, #cam > .switch, #cam > .row { grid-column: 2; }
+    /* The right column on a short screen (about 240 px under the browser's bars): small map, 1 line of text,
+       readings that may wrap, a low microphone row, then the buttons. Nothing overlaps. */
+    :root { --mini-h: 60px; --tap: 44px; }
+    #cam { grid-template-rows: auto auto auto auto auto; align-content: space-between; row-gap: 6px; }
+    #spotText { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    #facts { flex-wrap: wrap; row-gap: 2px; }
+    #facts b { font-size: var(--fs); }
+    #status { min-height: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #cam > .switch { min-height: 36px; }
+  }
   .switch { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); padding: 0 var(--gutter);
             border: 1px solid var(--line); border-radius: var(--radius); }
   .switch input { width: 22px; height: 22px; accent-color: var(--accent); }
@@ -102,9 +139,14 @@
 </section>
 
 <section id="cam" hidden>
+  <div id="spot">
+    <svg id="mini" role="img" aria-label="Map of your room"></svg>
+    <p id="spotText"></p>
+  </div>
   <div id="view">
     <video id="v" autoplay playsinline muted></video>
     <img id="poster" alt="Last frame sent" hidden>
+    <button id="zoom" hidden></button>
     <div id="note"><p id="noteText"></p><a id="noteTwin" href="/app/" hidden>See it on the Twin</a></div>
   </div>
   <div id="facts">
@@ -124,7 +166,7 @@
 <script>
 const q = new URLSearchParams(location.search);
 const intervalMs = +(q.get('ms') || 1000);   // send a frame every N ms
-const width = +(q.get('w') || 640);          // downscale before upload
+const width = +(q.get('w') || 800);          // downscale before upload: the long side of the frame, landscape or portrait
 const clipS = +(q.get('clip') || 2);         // audio clip length in seconds
 const $ = id => document.getElementById(id);
 const v = $('v'), c = $('c'), ctx = c.getContext('2d');
@@ -135,7 +177,10 @@ const TEXT = {
   blocked: 'The camera is blocked. Allow camera access for this site, then tap Start camera. A live camera needs the https link; "One photo" works on any link.',
   sent: 'Photo sent. Gemini is reading it…', failed: 'Upload failed: ', warming: 'Gemini is reading the first frame…',
   lost: 'This room is not on the twin now. Tap the room name and pick again.',
-  slow: 'No answer yet. Look at the big screen.', listening: 'listening…', noMic: 'mic off', onTwin: ' The twin now shows this.'
+  spotAsk: 'Tap where you stand in the room. Then drag toward where the camera faces.',
+  spotFace: 'Now drag from your dot toward where the camera faces.',
+  spotSet: 'Gemini uses your place and facing to put the furniture in the right spot. Tap or drag to change.',
+  slow: 'No answer yet. Look at the big screen.', dark: 'Too dark to see the room. Frame not sent. Lift the phone.', listening: 'listening…', noMic: 'mic off', onTwin: ' The twin now shows this.'
 };
 let cam = q.get('id'), running = false, sent = 0, wakeLock = null, audio = null;
 /* Session number. Each start and each stop makes a new session. A permission answer, a frame or a sound
@@ -155,6 +200,7 @@ function enter(room, startNow) {
   $('where').textContent = 'Your room (tap to change):';
   $('change').textContent = room;
   show($('pick'), false); show($('cam'), true); show($('change'), true);
+  drawMini(room);
   show($('poster'), false);
   $('b').textContent = TEXT.start;
   note(TEXT.idle);
@@ -173,7 +219,8 @@ function leave() {
 /* Room picker: the floor plan and the list show the same rooms. A tap on one selects it in both;
  * the button below then starts the camera for that room. */
 const RESULT_MS = 1500, RESULT_TRIES = 16;
-const ROOM_STORE = 'fireTwinRoom';
+const DARK_BELOW = 14, DARK_SAMPLES = 2000;   // a frame darker than this (0..255) is not sent
+const ROOM_STORE = 'fireTwinRoom', POSE_STORE = 'fireTwinPose:';
 const LEVEL_GAIN = 600;   // microphone level (0..1 RMS) -> percent of the meter
 const SOUND = { none: 'no alarm', alarm: 'ALARM', screaming: 'SCREAMING' };   // what Gemini heard in the last 2 s
 const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
@@ -213,6 +260,56 @@ function drawPlan(plan) {
   show(svg, true); show($('legend'), true);
 }
 
+/* ---- Where the phone stands and faces, on a small map of its room. Sent with every frame.
+ * x, y = layout cells. yaw = degrees on the plan: 0 = up (north), 90 = right (east). */
+let planData = null, pose = null;
+const MINI = { pad: 2, me: 0.9, cone: 4.5, spread: 28, dragMin: 0.8 };
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+
+function drawMini(room) {
+  const svg = $('mini'), r = planData && planData.rooms.find(x => x.name === room);
+  show($('spot'), !!r);
+  if (!r) return;
+  try { pose = JSON.parse(localStorage.getItem(POSE_STORE + room) || 'null'); } catch (e) { pose = null; }
+  if (pose && !(pose.x >= r.x && pose.x <= r.x + r.w && pose.y >= r.y && pose.y <= r.y + r.h)) pose = null;
+  svg.setAttribute('viewBox', [r.x - MINI.pad, r.y - MINI.pad, r.w + 2 * MINI.pad, r.h + 2 * MINI.pad].join(' '));
+  svg.style.aspectRatio = (r.w + 2 * MINI.pad) + ' / ' + (r.h + 2 * MINI.pad);
+  const node = (tag, attrs) => { const n = document.createElementNS(SVG, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+  svg.replaceChildren(...planData.rooms.map(o => node('rect', { x: o.x + 0.5, y: o.y + 0.5, width: o.w - 1, height: o.h - 1, rx: 0.5, class: o.name === room ? 'here' : '' })),
+    node('path', { class: 'cone', id: 'cone' }), node('circle', { class: 'me', id: 'me', r: MINI.me }));
+  const at = ev => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  let from = null;
+  svg.onpointerdown = ev => {
+    const p = at(ev);
+    from = { x: clamp(p.x, r.x + 1, r.x + r.w - 1), y: clamp(p.y, r.y + 1, r.y + r.h - 1) };
+    // A tap near your dot keeps your place (you are starting a drag to set the facing). A tap elsewhere moves you.
+    if (pose && Math.hypot(from.x - pose.x, from.y - pose.y) < MINI.me * 2.5) from = { x: pose.x, y: pose.y };
+    pose = { x: from.x, y: from.y, yaw: pose ? pose.yaw : null };
+    svg.setPointerCapture(ev.pointerId); showPose(room);
+  };
+  svg.onpointermove = ev => {
+    if (!from) return;
+    const p = at(ev), dx = p.x - from.x, dy = p.y - from.y;
+    if (Math.hypot(dx, dy) < MINI.dragMin) return;
+    pose.yaw = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+    showPose(room);
+  };
+  svg.onpointerup = svg.onpointercancel = () => { from = null; localStorage.setItem(POSE_STORE + room, JSON.stringify(pose)); };
+  showPose(room);
+}
+
+function showPose(room) {
+  const me = $('me'), cone = $('cone'), text = $('spotText');
+  show(me, !!pose); show(cone, !!(pose && pose.yaw != null));
+  if (!pose) { text.textContent = TEXT.spotAsk; return; }
+  me.setAttribute('cx', pose.x); me.setAttribute('cy', pose.y);
+  if (pose.yaw == null) { text.textContent = TEXT.spotFace; return; }
+  const ray = deg => { const a = deg * Math.PI / 180; return (pose.x + Math.sin(a) * MINI.cone) + ' ' + (pose.y - Math.cos(a) * MINI.cone); };
+  cone.setAttribute('d', 'M' + pose.x + ' ' + pose.y + ' L' + ray(pose.yaw - MINI.spread) + ' L' + ray(pose.yaw + MINI.spread) + ' Z');
+  text.replaceChildren(Object.assign(document.createElement('b'), { textContent: 'Facing ' + COMPASS[Math.round(pose.yaw / 45) % 8] + '. ' }), TEXT.spotSet);
+}
+
 fetch('/').then(r => r.json()).then(j => {
   const names = j.rooms.length ? j.rooms : Object.keys(j.cameras);   // rooms of the twin, else cameras of the map
   names.forEach((name, k) => {
@@ -223,7 +320,7 @@ fetch('/').then(r => r.json()).then(j => {
     $('rooms').append(b);
     picked.marks.set(name, [b]);
   });
-  if (j.plan && j.plan.rooms && j.plan.rooms.length) drawPlan(j.plan);
+  if (j.plan && j.plan.rooms && j.plan.rooms.length) { planData = j.plan; drawPlan(j.plan); if (cam) drawMini(cam); }
   const back = localStorage.getItem(ROOM_STORE);   // the room chosen before a visit to the Twin page
   if (!cam && back && names.includes(back)) enter(back, false);
 });
@@ -245,7 +342,8 @@ async function start() {
   let stream;
   try {
     if (!navigator.mediaDevices) throw new Error('no camera API on this link');
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: withMic });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: withMic });
+    stream = await widest(stream);
   } catch (e) {
     drop();
     if (my !== session) return;
@@ -265,8 +363,45 @@ async function start() {
   loop(my, room);
 }
 
+/* ---- The widest view the phone has, so 1 frame takes in a whole room.
+ * 1. A camera that can zoom out (iPhone: the combined back camera goes to 0.5x): set its zoom to the minimum.
+ * 2. Else a separate ultra-wide back camera, if the phone lists one: switch to it.
+ * The button on the picture steps between the zoom levels found. */
+let zoomTrack = null, zoomSteps = [], zoomAt = 0;
+
+async function widest(stream) {
+  let track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (!(caps.zoom && caps.zoom.min < 1)) {
+    try {
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const wide = cams.find(d => /ultra.?wide/i.test(d.label) && /back|rear|environment/i.test(d.label)) || cams.find(d => /ultra.?wide/i.test(d.label));
+      if (wide && wide.deviceId !== track.getSettings().deviceId) {
+        const s2 = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: wide.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+        track.stop(); stream.removeTrack(track); track = s2.getVideoTracks()[0]; stream.addTrack(track);
+      }
+    } catch (e) { /* keep the camera we have */ }
+  }
+  const c2 = track.getCapabilities ? track.getCapabilities() : {};
+  zoomTrack = track; zoomSteps = []; zoomAt = 0;
+  if (c2.zoom && c2.zoom.max > c2.zoom.min) {
+    zoomSteps = [c2.zoom.min, 1, 2].filter((z, k, all) => z >= c2.zoom.min && z <= c2.zoom.max && all.indexOf(z) === k);
+    await setZoom(0);
+  }
+  show($('zoom'), zoomSteps.length > 1);
+  return stream;
+}
+
+async function setZoom(k) {
+  zoomAt = k % zoomSteps.length;
+  try { await zoomTrack.applyConstraints({ advanced: [{ zoom: zoomSteps[zoomAt] }] }); } catch (e) { /* the phone refused: leave it */ }
+  $('zoom').textContent = zoomSteps[zoomAt] + '×';
+}
+$('zoom').onclick = () => setZoom(zoomAt + 1);
+
 function stop() {
   session++;
+  show($('zoom'), false);
   const wasRunning = running;
   running = false; stopAudio();
   $('level').style.width = '0';
@@ -329,8 +464,18 @@ function report(j, ms) {
   else status(j.error || TEXT.warming, j.error ? 'bad' : '');
 }
 
+/* A covered or lowered phone sends black frames, and Gemini reads those as an empty room. Do not send them.
+ * Mean brightness of a coarse grid of the frame on the canvas, 0..255. */
+function tooDark() {
+  const d = ctx.getImageData(0, 0, c.width, c.height).data, step = 4 * Math.max(1, Math.floor(c.width * c.height / DARK_SAMPLES));
+  let sum = 0, n = 0;
+  for (let i = 0; i < d.length; i += step) { sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; n++; }
+  return sum / n < DARK_BELOW;
+}
+
 async function postFrame(room, blob) {
-  const r = await fetch('/frame/' + encodeURIComponent(room), { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
+  const p = pose && pose.yaw != null ? '?x=' + pose.x.toFixed(1) + '&y=' + pose.y.toFixed(1) + '&yaw=' + Math.round(pose.yaw) : '';
+  const r = await fetch('/frame/' + encodeURIComponent(room) + p, { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
   return r.json();
 }
 
@@ -338,8 +483,9 @@ async function loop(my, room) {
   while (running && my === session) {
     const t0 = performance.now();
     if (v.videoWidth) {
-      const h = Math.round(v.videoHeight * width / v.videoWidth);
-      c.width = width; c.height = h; ctx.drawImage(v, 0, 0, width, h);
+      const k = width / Math.max(v.videoWidth, v.videoHeight), w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k);
+      c.width = w; c.height = h; ctx.drawImage(v, 0, 0, w, h);
+      if (tooDark()) { status(TEXT.dark, 'bad'); await new Promise(r => setTimeout(r, intervalMs)); continue; }
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.6));
       if (my !== session) return;   // stopped or changed room during the capture: send nothing
       try { const j = await postFrame(room, blob); if (my !== session) return; sent++; report(j, Math.round(performance.now() - t0)); }
