@@ -3,38 +3,86 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fire Twin</title>
+<title>Live Evacuation Twin</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <h1>Fire Twin</h1>
+<header class="topbar">
+  <div class="brand"><span class="brandmark" aria-hidden="true">↗</span><div><h1>Evacuation Twin</h1><span>Venue intelligence</span></div></div>
   <nav id="pages" aria-label="Page" hidden><a href="/camera">Camera</a><a class="on" aria-current="page">Twin</a></nav>
   <select id="preset" aria-label="Layout"></select>
-  <div id="views" role="group" aria-label="View">
-    <button data-view="2d">2D</button><button data-view="3d">3D</button><button data-view="live">Live</button>
-  </div>
-  <button id="freeze" aria-pressed="false">Freeze twin</button>
-  <button id="setup">Setup</button>
+  <span id="feedState" class="connection">Connecting cameras…</span>
+  <button id="setup" class="quiet">Settings</button>
 </header>
+<main class="workspace">
+  <div class="mapbar">
+    <div><span class="eyebrow" id="worldMode">VENUE VIEW</span><h2 id="mapTitle">The Malin Chelsea</h2></div>
+    <div id="views" role="group" aria-label="View"><button data-view="2d">2D plan</button><button data-view="3d">3D twin</button><button data-view="live">Cameras</button></div>
+  </div>
+  <div class="maptools">
+    <span id="population">Loading people</span>
+    <span id="placementNote">Preset occupancy · simulated placement</span>
+    <label class="toggle"><input id="congestion" type="checkbox" checked> Crowding</label>
+    <label class="toggle"><input id="cutaway" type="checkbox" checked> Low walls</label>
+    <button id="homeView" class="quiet">Fit view</button>
+  </div>
+  <section id="stage" aria-label="Interactive venue model">
+    <canvas id="cv"></canvas><canvas id="cv3d" hidden></canvas><div id="liveView" hidden></div>
+    <div class="stage-label"><span class="status-dot"></span><span id="sceneStatus">Venue snapshot</span></div>
+    <div class="maplegend" id="mapLegend"><span><i class="swatch people"></i>People</span><span><i class="swatch exits"></i>Exit</span><span><i class="swatch busy"></i>Gathering</span><span><i class="swatch queue"></i>Queue / dense cluster</span></div>
+    <span id="hint3d" hidden>Drag to orbit · Right-drag to pan · Scroll to zoom</span>
+  </section>
+  <div class="playback">
+    <div class="playback-heading"><strong id="runLabel">Explore the venue</strong><span id="snapshotLabel">Choose a room or inspect an opening</span></div>
+    <div class="playback-controls">
+      <button id="placeFire" class="primary">Simulate fire</button>
+      <button id="pause" disabled>Pause</button>
+      <button id="replay" disabled>Replay</button>
+      <button id="reset" class="quiet">Return to venue</button>
+      <label class="speed-control">Playback <input id="speed" type="range" min="4" max="60" value="8"><output id="speedLabel">4×</output></label>
+      <button id="freeze" aria-pressed="false" class="quiet">Freeze twin</button>
+    </div>
+    <div id="stats"></div>
+    <p id="pa" aria-live="polite"></p>
+  </div>
+</main>
+<aside class="sidebar">
+  <div class="assistant-head"><span class="gemini-mark" aria-hidden="true">✦</span><div><h2>Gemini assistant</h2><span id="agentConnection">Awaiting agent connection</span></div></div>
+  <div class="side-tabs" role="tablist" aria-label="Inspector">
+    <button role="tab" id="tab-assistant" data-panel="assistantPanel" aria-controls="assistantPanel" aria-selected="true">Assistant</button>
+    <button role="tab" id="tab-insights" data-panel="insightsPanel" aria-controls="insightsPanel" aria-selected="false">Simulation</button>
+    <button role="tab" id="tab-activity" data-panel="activityPanel" aria-controls="activityPanel" aria-selected="false">Activity</button>
+  </div>
+  <section id="assistantPanel" role="tabpanel" aria-labelledby="tab-assistant" class="side-panel">
+    <div class="assistant-intro"><div class="large-spark" aria-hidden="true">✦</div><h3>A clearer view of your venue.</h3><p>Explore a finding, inspect its evidence, and replay the scenario behind it.</p></div>
+    <div class="observation"><span class="eyebrow">CURRENT TWIN</span><p id="worldSummary"></p><button id="inspectQueues" class="text-button">Inspect doorway queues ↗</button></div>
+    <div id="agentMessages" role="log" aria-live="polite"></div>
+    <div id="suggestionList"></div>
+    <form id="agentForm" class="composer"><label for="agentQuestion">Ask Gemini about this venue</label><textarea id="agentQuestion" rows="2" placeholder="What should I inspect in this room?" disabled></textarea><div><span id="agentHelp">Available when the agent service connects</span><button id="agentSend" type="submit" disabled>Send ↗</button></div></form>
+  </section>
+  <section id="insightsPanel" role="tabpanel" aria-labelledby="tab-insights" class="side-panel" hidden>
+  <section id="doorQueues" aria-labelledby="queueTitle">
+    <div class="queueHead">
+      <h2 id="queueTitle">Doorway queues</h2>
+      <select id="queueOpening" aria-label="Opening to monitor"></select>
+    </div>
+    <div class="queueCaption"><strong id="queueName"></strong><span class="queueKey">Waiting = amber</span></div>
+    <dl class="queueMetrics">
+      <div><dt>Waiting now</dt><dd id="qWaiting">0</dd></div>
+      <div><dt>Peak queue</dt><dd id="qPeak">0</dd></div>
+      <div><dt>People affected</dt><dd id="qPeople">0</dd></div>
+      <div><dt>Total wait</dt><dd id="qWait">0 person-s</dd></div>
+      <div><dt>Longest wait</dt><dd id="qLongest">0 s</dd></div>
+      <div><dt>Smoke exposure</dt><dd id="qSmoke">0 smoke-s</dd></div>
+    </dl>
+    <details><summary>Measurement details</summary>
+      <p id="queueMeans"></p>
+      <p>Total wait sums time across people. Longest wait is one uninterrupted wait. Smoke-seconds sum local smoke level (0–1) × waiting seconds across people.</p>
+      <p>The outline in 3D marks the monitored opening.</p>
+    </details>
+  </section>
 
-<div id="pa" aria-live="polite"></div>
-
-<section id="stage">
-  <canvas id="cv"></canvas>
-  <canvas id="cv3d" hidden></canvas>
-  <div id="liveView" hidden></div>
-  <span class="tag">Sample data</span>
-  <span class="tag" id="hint3d" hidden>Drag: rotate · Right-drag, Shift + drag or arrow keys: move · Scroll: zoom</span>
-</section>
-
-<div id="stats"></div>
-
-<aside>
-  <table id="liveTable">
-    <thead><tr><th>Live camera</th><th>People</th><th>Gemini</th></tr></thead>
-    <tbody id="live"></tbody>
-  </table>
+    <details class="tool-section" id="awarenessDetails"><summary>Compare exit awareness</summary>
   <section id="awarenessPanel">
     <h2>Learn a second exit</h2>
     <label>Familiar exit <select id="familiarExit"></select></label>
@@ -54,26 +102,10 @@
       <p id="awarenessConfig"></p>
     </div>
   </section>
-  <section id="doorQueues" aria-labelledby="queueTitle">
-    <div class="queueHead">
-      <h2 id="queueTitle">Doorway queues</h2>
-      <select id="queueOpening" aria-label="Opening to monitor"></select>
-    </div>
-    <div class="queueCaption"><strong id="queueName"></strong><span class="queueKey">Queued in 3D</span></div>
-    <dl class="queueMetrics">
-      <div><dt>Waiting now</dt><dd id="qWaiting">0</dd></div>
-      <div><dt>Peak queue</dt><dd id="qPeak">0</dd></div>
-      <div><dt>People affected</dt><dd id="qPeople">0</dd></div>
-      <div><dt>Total wait</dt><dd id="qWait">0 person-s</dd></div>
-      <div><dt>Longest wait</dt><dd id="qLongest">0 s</dd></div>
-      <div><dt>Smoke exposure</dt><dd id="qSmoke">0 smoke-s</dd></div>
-    </dl>
-    <details><summary>Measurement details</summary>
-      <p id="queueMeans"></p>
-      <p>Total wait sums time across people. Longest wait is one uninterrupted wait. Smoke-seconds sum local smoke level (0–1) × waiting seconds across people.</p>
-      <p>The outline in 3D marks the monitored opening.</p>
-    </details>
-  </section>
+</details>
+    <details class="tool-section"><summary>Layout interventions & run history</summary>
+      <div class="row"><button id="fix">Find fix</button><button id="apply" disabled>Apply + replay</button></div>
+      <p class="muted">Uses the existing layout-proposal workflow.</p>
   <table id="seenTable" hidden>
     <thead><tr><th>Gemini saw</th></tr></thead>
     <tbody id="seen"></tbody>
@@ -86,36 +118,32 @@
     <thead><tr><th>Run</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
     <tbody id="runs"></tbody>
   </table>
+</details>
+    <label>Opening interaction <select id="interaction"><option value="inspect">Inspect only</option><option value="edit">Toggle locked state</option></select></label>
+  </section>
+  <section id="activityPanel" role="tabpanel" aria-labelledby="tab-activity" class="side-panel" hidden>
+    <h3>Camera observations</h3>
+
+  <table id="liveTable">
+    <thead><tr><th>Live camera</th><th>People</th><th>Gemini</th></tr></thead>
+    <tbody id="live"></tbody>
+  </table>
+<h3>Activity</h3><div id="log"></div>
+  </section>
+  <div class="sidebar-foot"><span id="layoutName"></span><span>Demonstration model · scenario estimates</span></div>
 </aside>
-
-<footer>
-  <div class="row">
-    <button id="pause">Play / Pause</button>
-    <button id="reset">Reset</button>
-    <button id="replay">Replay fire</button>
-  </div>
-  <div class="row">
-    <button id="fix" class="primary">Find fix</button>
-    <button id="apply" disabled>Apply best + replay</button>
-  </div>
-  <div class="status"><span id="feedState"></span><span id="layoutName"></span><div id="log"></div></div>
-</footer>
-
 <dialog id="setupDlg">
-  <form method="dialog" class="dlgHead"><h2>Setup</h2><button class="primary">Done</button></form>
+  <form method="dialog" class="dlgHead"><h2>Settings</h2><button class="primary">Done</button></form>
   <div class="row">
-    <label>Speed <input id="speed" type="range" min="4" max="60" value="16"></label>
+
     <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
   </div>
   <label>Gemini API key <span id="keyState"></span><input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
   <div class="row">
-    <label>Fast: photos, PA, fixes <input id="model" type="text" value="gemini-4-hydrogen"></label>
+    <label>Fast: photos and fixes <input id="model" type="text" value="gemini-4-hydrogen"></label>
     <label>Reasoning: floor plan <input id="deep" type="text" value="gemini-4-neon"></label>
   </div>
   <div class="options">
-    <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
-    <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>
-    <label><span>Fire seen or alarm heard by a phone starts the fire</span><input id="autofire" type="checkbox" checked></label>
     <label><span>Only people that phones see right now</span><input id="liveOnly" type="checkbox"></label>
   </div>
   <label>Floor plan and/or video → new twin <input id="media" type="file" multiple accept="image/*,application/pdf,video/*"></label>
@@ -126,12 +154,14 @@
 
 <script src="layouts.js"></script>
 <script src="sim.js"></script>
+<script src="crowdvisual.js"></script>
 <script src="render.js"></script>
 <script src="vendor/three.bundle.js"></script>
 <script src="render3d.js"></script>
 <script src="renderlive.js"></script>
 <script src="gemini.js"></script>
 <script src="feed.js"></script>
+<script src="assistant.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
