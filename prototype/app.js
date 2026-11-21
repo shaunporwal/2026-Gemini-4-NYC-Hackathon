@@ -563,6 +563,15 @@
   const savedPlans = () => Object.fromEntries(Object.entries(LAYOUTS).filter(([k]) => k.startsWith(SAVED)));
   const storePlans = () => localStorage.setItem(PLANS_STORE, JSON.stringify(savedPlans()));
   const showDelete = () => { $('delPlan').hidden = !FEED.presenter || !$('preset').value.startsWith(SAVED); };
+  /* A large line over the map: what Gemini does with the floor plan now. bad = an error. ms = hide it after this long. */
+  let planStep = '', bannerTimer = 0;
+  function banner(text, bad, ms) {
+    const n = $('planBanner');
+    clearTimeout(bannerTimer);
+    n.textContent = text; n.hidden = false; n.classList.toggle('bad', !!bad);
+    if (ms) bannerTimer = setTimeout(() => { n.hidden = true; }, ms);
+  }
+
   /* The twin while Gemini still writes it: draw what is complete so far (2D or 3D, the view on screen). */
   function buildPreview(P) {
     if (!(P.width > 0 && P.height > 0) || !(P.rooms || []).length) return;
@@ -573,7 +582,8 @@
       const sim = new F.Sim(L, simOpts());
       state.sim = sim; state.running = false;
       view.fit(sim);
-      $('pa').textContent = ('Gemini builds the twin: ' + L.rooms.length + ' rooms, ' + L.doors.length + ' doors, ' + L.exits.length + ' exits…');
+      planStep = 'Gemini builds the twin: ' + L.rooms.length + ' rooms, ' + L.doors.length + ' doors, ' + L.exits.length + ' exits';
+      banner(planStep);
     } catch (e) { /* this piece cannot be drawn yet: wait for the next one */ }
   }
 
@@ -638,15 +648,19 @@
       ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
     /* "+ Floor plan": a PDF or picture -> Gemini -> a new twin, kept in the list of layouts (this browser). */
     on('addPlan', 'click', () => {
-      if (!cfg().key) { log(KEY_MISSING + ' Open Setup first.'); $('setupDlg').showModal(); return; }
+      if (!cfg().key) { banner('Paste the Gemini API key in Settings first.', true, 8000); $('setupDlg').showModal(); return; }
       $('planFile').click();
     });
     on('planFile', 'change', guarded('Floor plan', async ev => {
       const files = [...ev.target.files]; ev.target.value = '';
       if (!files.length) return;
       const t0 = Date.now(), b = $('addPlan'), secs = () => Math.round((Date.now() - t0) / 1000);
-      const tick = setInterval(() => { b.textContent = PLAN_READING + ' ' + secs() + ' s'; }, 1000);
-      b.disabled = true; b.textContent = PLAN_READING;
+      let step = 'Gemini reads ' + files[0].name;   // buildPreview changes it to the count of rooms so far
+      const show = () => { b.textContent = PLAN_READING + ' ' + secs() + ' s'; banner((planStep || step) + ' · ' + secs() + ' s'); };
+      planStep = '';
+      const tick = setInterval(show, 1000);
+      b.disabled = true; show();
+      if ($('stage').dataset.view === 'live') setView('2d');   // the build is drawn on the map, not on the camera pictures
       log('Gemini reads ' + files[0].name + ' and builds the twin…');
       try {
         // The fast model, read while it writes: each finished room, door and exit goes on screen at once.
@@ -657,8 +671,14 @@
         $('preset').value = key;
         loadLayout(F.clone(LAYOUTS[key]));
         log('New twin from ' + files[0].name + ': ' + L.rooms.length + ' rooms, ' + L.exits.length + ' exits, in ' + secs() + ' s.');
-      } catch (e) { reset(); throw e; }   // back to the twin that was on screen
-      finally { clearInterval(tick); b.disabled = false; b.textContent = PLAN_ADD; showDelete(); }
+        clearInterval(tick);
+        banner('Twin built from ' + files[0].name + ' in ' + secs() + ' s: ' + L.rooms.length + ' rooms, ' + L.exits.length + ' exits', false, 5000);
+      } catch (e) {   // back to the twin that was on screen, and say why on the map (the log is in another tab)
+        clearInterval(tick); reset();
+        const said = /"message":\s*"([^"]+)"/.exec(e.message);   // Gemini's own words, without the JSON around them
+        banner('Floor plan failed: ' + (said ? said[1] : e.message).slice(0, 160), true, 12000);
+        throw e;
+      } finally { clearInterval(tick); b.disabled = false; b.textContent = PLAN_ADD; showDelete(); }
     }));
     on('delPlan', 'click', () => {
       const key = $('preset').value;

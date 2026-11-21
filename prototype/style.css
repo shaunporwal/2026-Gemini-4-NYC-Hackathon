@@ -179,3 +179,8 @@ td.good { color: var(--ok); font-weight: 700; }
 #liveView .strip { --thumb: 84px; --thumb-h: 44px; }
 #liveView.empty .join { grid-column: 1 / -1; grid-row: 1 / -1; max-width: none; align-self: stretch; --qr: var(--qr-big); }
 #liveView.empty .join span:not(.link) { display: inline; }
+
+/* The floor plan upload: what Gemini does now, large, over the map. */
+#planBanner { position: absolute; z-index: 3; top: 14px; left: 50%; transform: translateX(-50%); max-width: 80%; padding: 14px 20px; border-radius: 10px; background: #141e18ee; border: 1px solid var(--focus, #c7e6a3); color: var(--text); font-size: 16px; font-weight: 600; text-align: center; pointer-events: none; }
+#planBanner[hidden] { display: none; }
+#planBanner.bad { border-color: var(--bad); color: var(--bad); }
