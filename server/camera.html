@@ -32,11 +32,18 @@
   #rooms button { width: 100%; justify-content: flex-start; border: 0; border-radius: 0; background-color: transparent; text-align: left; }
   #rooms button + button { border-top: 1px solid var(--line); }
   #rooms button.on { background-color: var(--control); font-weight: 600; }
+  #rooms button { gap: var(--gutter); }
+  /* The key number of a room: the same number is on its block on the floor plan. */
+  .key { flex: none; min-width: 30px; height: 30px; padding: 0 6px; display: flex; align-items: center; justify-content: center;
+         border-radius: 8px; border: 1px solid var(--line); background-color: var(--control); font-weight: 700; font-variant-numeric: tabular-nums; }
+  #rooms button.on .key { background-color: var(--accent); border-color: var(--accent); }
   /* The floor plan. Tap a room; the list row and the button below show its name. */
   #plan { flex: none; width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--panel); touch-action: manipulation; }
   #plan rect { fill: var(--control); stroke: var(--line); stroke-width: 0.35; }
   #plan rect.on { fill: var(--accent); }
-  #plan text { fill: var(--text); font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #plan text { fill: var(--text); font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #plan text.name { fill: var(--muted); font-weight: 500; }
+  #legend { color: var(--muted); font-size: var(--fs-small); }
 
   /* Step 2: the camera. */
   #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
@@ -66,6 +73,7 @@
 
 <section id="pick">
   <svg id="plan" hidden></svg>
+  <div id="legend" hidden>Each number on the floor plan is a room in the list.</div>
   <div id="rooms"></div>
   <button id="use" class="primary" disabled>Tap your room on the map or in the list</button>
 </section>
@@ -123,7 +131,7 @@ function leave() {
 
 /* Room picker: the floor plan and the list show the same rooms. A tap on one selects it in both;
  * the button below then starts the camera for that room. */
-const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 2.6, min: 1.7, perChar: 0.6 };
+const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
 const picked = { name: null, marks: new Map() };   // room name -> [list row, plan rect]
 
 function select(name) {
@@ -135,41 +143,41 @@ function select(name) {
 }
 $('use').onclick = () => enter(picked.name, true);
 
-/* Short label for a small room: the text in brackets ("Bricken Office (10)" -> "10"), else the first word. */
-function shortName(name, w) {
-  const fits = t => t.length * LABEL.perChar * LABEL.size <= w;
-  const short = (name.match(/\(([^)]+)\)/) || [])[1] || name.split(' ')[0];
-  return fits(name) ? name : fits(short) ? short : '';
-}
-
+/* Every room gets a key number, on its block and on its list row. A big block also shows the room name. */
 function drawPlan(plan) {
   const svg = $('plan'), node = (tag, attrs) => { const n = document.createElementNS(SVG, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
   svg.setAttribute('viewBox', `-1 -1 ${plan.width + 2} ${plan.height + 2}`);
-  for (const r of plan.rooms) {
+  plan.rooms.forEach(r => {
     const rect = node('rect', { x: r.x + 0.5, y: r.y + 0.5, width: r.w - 1, height: r.h - 1, rx: 0.6 });
     rect.onclick = () => select(r.name);
     svg.append(rect);
     picked.marks.get(r.name).push(rect);
-  }
-  for (const r of plan.rooms) {   // labels on top of all rooms
-    const label = shortName(r.name, r.w - 2);
-    if (!label || r.h < 4) continue;
-    const t = node('text', { x: r.x + r.w / 2, y: r.y + r.h / 2, 'font-size': LABEL.size });
-    t.textContent = label;
+  });
+  plan.rooms.forEach((r, k) => {   // labels on top of all rooms
+    const key = String(k + 1), size = Math.min(LABEL.size, (r.w - 1.6) / (key.length * LABEL.perChar), r.h - 1.6);
+    const named = r.name.length * LABEL.perChar * LABEL.name <= r.w - 2 && r.h >= LABEL.size + LABEL.name + 2;
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    const t = node('text', { x: cx, y: named ? cy - LABEL.name * 0.7 : cy, 'font-size': size });
+    t.textContent = key;
     svg.append(t);
-  }
-  show(svg, true);
+    if (!named) return;
+    const n = node('text', { x: cx, y: cy + LABEL.size * 0.6, 'font-size': LABEL.name, class: 'name' });
+    n.textContent = r.name;
+    svg.append(n);
+  });
+  show(svg, true); show($('legend'), true);
 }
 
 fetch('/').then(r => r.json()).then(j => {
   const names = j.rooms.length ? j.rooms : Object.keys(j.cameras);   // rooms of the twin, else cameras of the map
-  for (const name of names) {
-    const b = document.createElement('button');
-    b.textContent = name;
+  names.forEach((name, k) => {
+    const b = document.createElement('button'), key = document.createElement('span'), text = document.createElement('span');
+    key.className = 'key'; key.textContent = k + 1; text.textContent = name;
+    b.append(key, text);
     b.onclick = () => select(name);
     $('rooms').append(b);
     picked.marks.set(name, [b]);
-  }
+  });
   if (j.plan && j.plan.rooms && j.plan.rooms.length) drawPlan(j.plan);
 });
 if (cam) enter(cam, false);
