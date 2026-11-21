@@ -133,6 +133,7 @@ function status(text, cls) { $('status').textContent = text; $('status').classNa
 /* Step 1 -> step 2. Called from a tap, so the browser lets the camera start at once. */
 function enter(room, startNow) {
   cam = room;
+  localStorage.setItem(ROOM_STORE, room);   // coming back from the Twin page returns to this room
   history.replaceState(null, '', '/camera?id=' + encodeURIComponent(room));
   $('where').textContent = 'Your room (tap to change):';
   $('change').textContent = room;
@@ -143,6 +144,7 @@ function enter(room, startNow) {
 function leave() {
   stop();
   cam = null;
+  localStorage.removeItem(ROOM_STORE);
   history.replaceState(null, '', '/camera');
   $('where').textContent = 'Pick the room you are in';
   show($('cam'), false); show($('change'), false); show($('pick'), true);
@@ -151,6 +153,7 @@ function leave() {
 /* Room picker: the floor plan and the list show the same rooms. A tap on one selects it in both;
  * the button below then starts the camera for that room. */
 const RESULT_MS = 1500, RESULT_TRIES = 16;
+const ROOM_STORE = 'fireTwinRoom';
 const SVG = 'http://www.w3.org/2000/svg', LABEL = { size: 3, name: 1.5, perChar: 0.62 };
 const picked = { name: null, marks: new Map() };   // room name -> [list row, plan rect]
 
@@ -199,6 +202,8 @@ fetch('/').then(r => r.json()).then(j => {
     picked.marks.set(name, [b]);
   });
   if (j.plan && j.plan.rooms && j.plan.rooms.length) drawPlan(j.plan);
+  const back = localStorage.getItem(ROOM_STORE);   // the room chosen before a visit to the Twin page
+  if (!cam && back && names.includes(back)) enter(back, false);
 });
 if (cam) enter(cam, false);
 $('change').onclick = leave;
