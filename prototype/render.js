@@ -85,11 +85,13 @@
       }
     }
 
-    function draw(sim, t, marks) {
+    function draw(sim, t, extra) {
+      const marks = extra && extra.marks;
       const { W, N } = sim;
       for (let i = 0; i < N; i++) {
         const x = (i % W) * cs, y = ((i / W) | 0) * cs;
-        ctx.fillStyle = !sim.covered[i] ? OUTSIDE : sim.furn[i] ? FURNITURE : CELL[sim.type[i]]; ctx.fillRect(x, y, cs, cs);
+        const blocked = sim.furn[i] || (sim.type[i] === F.FLOOR && sim.walkable && !sim.walkable[i]);   // furniture, or a blocked voxel of a grid map
+        ctx.fillStyle = !sim.covered[i] ? OUTSIDE : blocked ? FURNITURE : CELL[sim.type[i]]; ctx.fillRect(x, y, cs, cs);
         if (sim.fire[i]) {
           const f = 0.5 + 0.5 * Math.sin(t / 90 + i * 1.7);
           ctx.fillStyle = 'rgb(255,' + Math.round(70 + 140 * f) + ',' + Math.round(20 + 40 * f) + ')';

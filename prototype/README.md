@@ -19,7 +19,13 @@ For the Gemini steps, paste an API key in the side panel (it stays in the tab).
 
 Click a door or exit to lock or unlock it. Red = locked.
 
-The **3D / 2D** button in the header switches the view of the same simulation. In 3D: drag to orbit, scroll to zoom, click the floor to start a fire. A layout can carry `wallColor`, a `color` for each room and `objects` (furniture); Gemini fills these from a video so the 3D view looks like the room. The simulator ignores furniture: people walk through it.
+The **3D / 2D** button in the header switches the view of the same simulation. In 3D: drag to orbit, scroll to zoom, click the floor to start a fire. A layout can carry `wallColor`, a `color` for each room and `objects` (furniture); Gemini fills these from a video so the 3D view looks like the room. Furniture footprints block pedestrian placement and movement, including diagonal shortcuts. Stages remain walkable. Smoke and fire can pass through furnished cells.
+
+### Doorway queues
+
+Pick a door or exit in the queue panel to see its current and peak queue, distinct people who waited, total waiting time and longest uninterrupted individual wait. A wait counts when someone has an exit route, is ready to take a step, and people ahead block their progress at the opening. The engine also follows occupied cells back along a line. A person can count at several doors during one evacuation.
+
+Each waiting person adds 0.5 person-seconds per tick. Waiting smoke exposure sums the local smoke index (0–1) multiplied by those seconds. For example, four people waiting for two seconds at an index of 0.5 contribute eight person-seconds and four smoke-seconds. Reset or replay starts the counters fresh.
 
 Layouts (`layouts.js`):
 
