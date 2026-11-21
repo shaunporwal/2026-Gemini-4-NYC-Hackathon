@@ -196,8 +196,9 @@
         for (let i = cells.length - 1; i > 0; i--) {
           const j = Math.floor(randPlace() * (i + 1)), t = cells[i]; cells[i] = cells[j]; cells[j] = t;
         }
-        /* A phone counted these people in what it sees: put them in its field of view first (r.view = its pose). */
-        const v = r.view, order = v ? cells.filter(i => inView(v, i % W, (i / W) | 0)).concat(cells.filter(i => !inView(v, i % W, (i / W) | 0))) : cells;
+        /* Phones counted these people in what they see: put them in the phones' fields of view first (r.views = their poses). */
+        const vs = r.views || (r.view ? [r.view] : null), seen = i => vs.some(v => inView(v, i % W, (i / W) | 0));
+        const order = vs ? cells.filter(seen).concat(cells.filter(i => !seen(i))) : cells;
         for (let k = 0, n = Math.min(r.people || 0, order.length); k < n; k++) {
           spawn(order[k]);
         }
