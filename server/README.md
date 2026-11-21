@@ -53,6 +53,9 @@ curl localhost:8000/observations
 | Decisions API `gemini-decision-1` | `DECISION_MODEL` | Calibrated yes/no, score and choice answers: people present, a count range (0, 1, 2, 3, 4–5, 6–9, 10+), density 0–4, fire/smoke, exit blocked (only if the camera sees an exit). Audio clips: alarm / screaming | Every frame, every clip |
 | Gemini 4 Hydrogen `gemini-4-hydrogen` | `VISION_MODEL` | Head count, each person's foot point in the image, one-line scene summary | In the background (one call per camera at a time): someone appears, Decisions' count range changes, or every `HEARTBEAT_S`. A change during a call re-counts the newest frame as soon as it finishes |
 
+| Agent: `gemini-4-hydrogen` | `AGENT_MODEL` | The organizer's chat (`agent.py`): answers by calling simulation tools on the page's snapshot; proposes changes for the Advisor tab | Per question |
+| Advisor guide: `gemini-4-neon` | `GUIDE_MODEL` | Writes the Advisor tab's advice guide from measured results | Per analysis |
+
 `THINKING=low` sets Hydrogen's `thinking_level` (`minimal` is rejected by Hydrogen; low media resolution is not faster).
 All model calls are in `perception.py`. Measured: Decisions about 0.3–0.7 s, Hydrogen 2.5–4.5 s, first call after start 10–20 s (hence `WARMUP`).
 Each frame gives a fast Observation from Decisions; a second Observation follows when a background re-count finishes.
@@ -63,6 +66,8 @@ Each frame gives a fast Observation from Decisions; a second Observation follows
 | `POST /frame/{cameraId}` | JPEG body. Only the newest frame per camera is processed; stale ones are dropped. |
 | `POST /audio/{cameraId}` | 16 kHz mono WAV body (`camera.html` makes it; the API doesn't take webm). |
 | `WS /ws` | Server → browser: `{"type":"observation","observation":Observation}` after each frame, plus the latest per camera on connect. Browser → server: `{"type":"cameras","cameras":CameraDef[]}` after a camera is moved, so positions and visible exits use the new pose. |
+| `POST /agent/ask` | **Laptop only.** `{question, history, layout, fireRate}` → NDJSON stream: `{type:'step'|'thought', text}` while the agent works, then `{type:'result', result:{text, openingId?, suggestions, replay?}}`. Simulations run in Node (`sim_tools.js` loads `prototype/sim.js` and `analysis.js`) on the layout in the request |
+| `POST /advisor/propose`, `POST /advisor/guide` | **Laptop only.** The Advisor tab's two Gemini steps, streamed the same way |
 | `GET /observations` | Snapshot `{t, map, mode, observations: {cameraId: Observation}}`. For debugging, or for a client that polls. |
 | `GET /camera`, `GET /` | Phone page; index of the map's cameras. |
 | `GET /debug?id=<cameraId>` | **Laptop only** (refused through the tunnel). The last frame Hydrogen counted, with a numbered dot on each person it found, its count, the count shown now and Decisions' range. Kept in memory only, one frame per camera. |
@@ -124,7 +129,9 @@ headcount MAE and ±1 accuracy (baseline vs gated), hazard false alarms and miss
 | File | Job |
 |---|---|
 | `app.py` | FastAPI app, camera workers, gating, Observation building, WebSocket |
-| `perception.py` | All Gemini calls and prompts |
+| `perception.py` | Perception Gemini calls and prompts; holds the API key |
+| `agent.py` | The agent: chat tool loop, Advisor proposals and guide |
+| `sim_tools.js` | The agent's simulation tools (Node, the prototype's engine) |
 | `geometry.py` | Map JSON → cameras and exits; image → floor projection |
 | `camera.html` | Phone page: frames + WAV clips |
 | `debug.html` | Debug view: what Hydrogen counted |
