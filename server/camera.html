@@ -473,8 +473,12 @@ function tooDark() {
   return sum / n < DARK_BELOW;
 }
 
+/* This phone's own id, so the server can tell 2 phones in the same room apart. */
+const PHONE_ID = localStorage.getItem('fireTwinPhone') || Math.random().toString(36).slice(2, 10);
+localStorage.setItem('fireTwinPhone', PHONE_ID);
+
 async function postFrame(room, blob) {
-  const p = pose && pose.yaw != null ? '?x=' + pose.x.toFixed(1) + '&y=' + pose.y.toFixed(1) + '&yaw=' + Math.round(pose.yaw) : '';
+  const p = '?phone=' + PHONE_ID + (pose && pose.yaw != null ? '&x=' + pose.x.toFixed(1) + '&y=' + pose.y.toFixed(1) + '&yaw=' + Math.round(pose.yaw) : '');
   const r = await fetch('/frame/' + encodeURIComponent(room) + p, { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
   return r.json();
 }

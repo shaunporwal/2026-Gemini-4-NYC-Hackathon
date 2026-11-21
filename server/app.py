@@ -120,6 +120,8 @@ def observation(cam_id: str) -> dict:
     o = {
         "cameraId": cam_id,
         "pose": c.get("pose"),
+        "poses": [{k: p[k] for k in ("x", "y", "yaw")} for _, p in sorted(c.get("poses", {}).items())
+                  if time.time() - p["t"] < POSE_TTL_S],
         **({"room": MAP.cameras[cam_id]["room"]} if "room" in MAP.cameras.get(cam_id, {}) else {}),
         "timestamp": int((c["stream"]["lastFrame"] or time.time()) * 1000),
         "peopleCount": c["count"],
@@ -154,6 +156,9 @@ def log_metrics(row: dict):
         if new:
             w.writeheader()
         w.writerow(row)
+
+
+POSE_TTL_S = 10  # a phone that sent no frame for this long is no longer in the room's list of phones
 
 
 def read_pose(q) -> dict | None:
@@ -356,6 +361,11 @@ async def post_frame(cam_id: str, request: Request):
     latest_frame[cam_id] = (jpeg, now)
     c = cams[cam_id]
     c["pose"] = read_pose(request.query_params)
+    # More than one phone can film the same room: keep each phone's pose (phone = an id the phone made up).
+    phone = request.query_params.get("phone", "")[:40] or "one"
+    c.setdefault("poses", {}).pop(phone, None)
+    if c["pose"]:
+        c["poses"][phone] = {**c["pose"], "t": now}
     c["stream"]["lastFrame"] = now
     c["stream"]["frames"] += 1
     events[cam_id].set()
