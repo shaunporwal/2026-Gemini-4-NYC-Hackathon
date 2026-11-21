@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fire Twin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Fire Twin</h1>
+  <select id="preset" aria-label="Layout"></select>
+  <button id="setup">Setup</button>
+</header>
+
+<div id="pa" aria-live="polite"></div>
+
+<section id="stage">
+  <canvas id="cv"></canvas>
+  <span class="tag">Sample data</span>
+</section>
+
+<div id="stats"></div>
+
+<aside>
+  <table>
+    <thead><tr><th>Fix candidate</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
+    <tbody id="fixes"></tbody>
+  </table>
+  <table>
+    <thead><tr><th>Run</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
+    <tbody id="runs"></tbody>
+  </table>
+</aside>
+
+<footer>
+  <div class="row">
+    <button id="pause">Play / Pause</button>
+    <button id="reset">Reset</button>
+    <button id="replay">Replay fire</button>
+  </div>
+  <div class="row">
+    <button id="fix" class="primary">Find fix</button>
+    <button id="apply" disabled>Apply best + replay</button>
+  </div>
+  <div class="status"><span id="layoutName"></span><div id="log"></div></div>
+</footer>
+
+<dialog id="setupDlg">
+  <form method="dialog" class="dlgHead"><h2>Setup</h2><button>Close</button></form>
+  <div class="row">
+    <label>Speed <input id="speed" type="range" min="4" max="60" value="16"></label>
+    <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
+  </div>
+  <label>Gemini API key <input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
+  <label>Model <input id="model" type="text" value="gemini-4-hydrogen"></label>
+  <div class="options">
+    <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
+    <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>
+  </div>
+  <label>Floor plan (photo or PDF) → twin <input id="photo" type="file" accept="image/*,application/pdf"></label>
+  <label>Layout JSON <textarea id="json" rows="3" spellcheck="false"></textarea></label>
+  <div class="row"><button id="loadJson">Load JSON</button></div>
+</dialog>
+
+<script src="layouts.js"></script>
+<script src="sim.js"></script>
+<script src="render.js"></script>
+<script src="gemini.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
