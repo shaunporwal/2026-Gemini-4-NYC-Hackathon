@@ -25,5 +25,5 @@ Hackathon project (Gemini 4 NYC, 2026-11-21). One day. Speed to a working stage 
 
 ## Design rule
 
-Physics and routing are code. The LLM reads (photo → layout), speaks (PA text) and proposes (fixes).
+Physics and routing are code. The LLM reads (floor plan, photo or video → layout), speaks (PA text) and proposes (fixes).
 The LLM does not decide: `sim.js` scores each proposal with the same seed and the same fire.

@@ -1,6 +1,6 @@
 # Fire Twin
 
-Photo of a floor plan → digital twin → live fire and evacuation → Gemini proposes a fix → the simulator proves it.
+Floor plan or walkthrough video → digital twin → live fire and evacuation → Gemini proposes a fix → the simulator proves it.
 
 Gemini 4 NYC Hackathon, 2026-11-21.
 
@@ -11,7 +11,7 @@ For the Gemini steps, paste an API key in the side panel (it stays in the tab).
 
 ## Demo path
 
-1. (Optional) "Floor plan photo → twin": Gemini converts a photo or hand sketch to the layout JSON.
+1. (Optional) Setup → "Floor plan and/or video → new twin": Gemini converts a floor plan (photo, PDF, sketch) and/or a walkthrough video to the layout JSON. "Walkthrough video → update this twin" corrects exits, locked doors and head counts on the current layout. The side panel lists what Gemini saw.
 2. Click the floor: fire starts. Fire and smoke spread; people go to the nearest safe exit; routes update each second.
 3. The PA text changes when an exit is blocked (Gemini writes it; the browser speaks it).
 4. "Find fix": candidates from search + Gemini. The simulator scores each one against the same fire.

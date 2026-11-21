@@ -45,6 +45,12 @@
     showLabel();
   }
 
+  /* What Gemini saw or heard in the last floor plan or video. Empty list = hide. */
+  function showSeen(notes) {
+    $('seen').replaceChildren(...notes.map(n => { const tr = el('tr'); tr.append(el('td', n)); return tr; }));
+    $('seenTable').hidden = !notes.length;
+  }
+
   function showLabel() { $('layoutName').textContent = state.layout.name + ' · ' + state.label; }
 
   function loadLayout(L) {
@@ -56,6 +62,7 @@
     state.layout = L; state.label = 'Baseline'; state.lastIgn = []; state.fix = null;
     $('json').value = JSON.stringify(L);
     $('apply').disabled = true;
+    showSeen([]);
     reset();
     say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
   }
@@ -171,13 +178,17 @@
     on('apply', 'click', applyFix);
     on('loadJson', 'click', guarded('Layout', () => loadLayout(JSON.parse($('json').value))));
     on('preset', 'change', () => loadLayout(F.clone(LAYOUTS[$('preset').value])));
-    on('photo', 'change', guarded('Photo', async ev => {
-      const file = ev.target.files[0]; ev.target.value = '';
-      if (!file) return;
-      log('Gemini: reading the floor plan…');
-      loadLayout(await G.layoutFromPhoto(cfg(), file, LAYOUTS.demo));
-      log('Layout loaded from photo.');
-    }));
+    const fromGemini = (what, job) => guarded(what, async ev => {
+      const files = [...ev.target.files]; ev.target.value = '';
+      if (!files.length) return;
+      $('setupDlg').close();
+      const L = await job(files, msg => log('Gemini: ' + msg));
+      loadLayout(L);
+      showSeen(G.notesOf(L));
+      log(what + ': layout loaded.');
+    });
+    on('media', 'change', fromGemini('New twin', (files, status) => G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status)));
+    on('walk', 'change', fromGemini('Video update', (files, status) => G.updateFromVideo(cfg(), files[0], state.layout, status)));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
     loadLayout(F.clone(LAYOUTS[$('preset').value]));

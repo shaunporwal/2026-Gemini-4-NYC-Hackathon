@@ -1,9 +1,13 @@
-/* All LLM work is here: prompts + the Gemini REST call. No sim logic, no DOM.
- * The LLM reads (photo -> layout), speaks (PA text) and proposes (fixes).
+/* All LLM work is here: prompts + the Gemini REST calls. No sim logic, no DOM.
+ * The LLM reads (floor plan, photo or video -> layout), speaks (PA text) and proposes (fixes).
  * It never decides: sim.js scores every proposal. */
 (function () {
   'use strict';
-  const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+  const API = 'https://generativelanguage.googleapis.com/';
+  const ENDPOINT = API + 'v1beta/models/';
+  const INLINE_MAX = 15 * 1048576;   // bytes; larger files use the Files API
+  const POLL_MS = 2000, POLL_MAX = 90;
+  const NOTES_MAX = 6, NOTE_LEN = 160;
 
   /* cfg = {key, model}. parts = Gemini "parts" array. Returns the reply text. */
   async function call(cfg, parts, wantJson) {
@@ -37,24 +41,93 @@
     r.readAsDataURL(file);
   });
 
-  const LAYOUT_RULES = [
-    'Convert this floor plan (photo, PDF, drawing or hand sketch) to JSON for an evacuation simulator.',
-    'Grid: 1 cell = about 1 m. Origin top-left, x to the right, y down. Use a grid of about 80 x 46 cells. Cells not covered by a room are outside the building.',
+  const sleep = ms => new Promise(ok => setTimeout(ok, ms));
+  const isVideo = file => /^video\//.test(file.type);
+
+  /* Files API: resumable upload, then wait until Gemini has processed the file. Returns a "part". */
+  async function upload(cfg, file, onStatus) {
+    onStatus('uploading ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)…');
+    const start = await fetch(API + 'upload/v1beta/files', {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': cfg.key, 'Content-Type': 'application/json',
+        'X-Goog-Upload-Protocol': 'resumable', 'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(file.size), 'X-Goog-Upload-Header-Content-Type': file.type
+      },
+      body: JSON.stringify({ file: { display_name: file.name } })
+    });
+    const url = start.ok && start.headers.get('x-goog-upload-url');
+    if (!url) throw new Error('Gemini upload ' + start.status + ': no upload URL');
+    const sent = await fetch(url, { method: 'POST', headers: { 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' }, body: file });
+    if (!sent.ok) throw new Error('Gemini upload ' + sent.status + ': ' + (await sent.text()).slice(0, 300));
+    let f = (await sent.json()).file;
+    for (let n = 0; f.state === 'PROCESSING' && n < POLL_MAX; n++) {
+      onStatus('processing ' + file.name + '…');
+      await sleep(POLL_MS);
+      const res = await fetch(API + 'v1beta/' + f.name, { headers: { 'x-goog-api-key': cfg.key } });
+      if (!res.ok) throw new Error('Gemini file ' + res.status);
+      f = await res.json();
+    }
+    if (f.state !== 'ACTIVE') throw new Error('Gemini: file is ' + f.state);
+    return { file_data: { mime_type: f.mimeType || file.type, file_uri: f.uri } };
+  }
+
+  /* Video and large files go through the Files API. Small images and PDFs go inline. */
+  async function mediaPart(cfg, file, onStatus) {
+    if (isVideo(file) || file.size > INLINE_MAX) return upload(cfg, file, onStatus);
+    return { inline_data: { mime_type: file.type || 'image/jpeg', data: await toBase64(file) } };
+  }
+
+  const SCHEMA_RULES = [
+    'Grid: 1 cell = about 1 m. Origin top-left, x to the right, y down. Cells not covered by a room are outside the building.',
     'rooms: axis-aligned rectangles {name,x,y,w,h,people}. Each rectangle INCLUDES its walls (1 cell thick).',
     'Adjacent rooms share a wall: their rectangles overlap by exactly 1 cell. Corridors and lobbies are rooms. Approximate irregular shapes with rectangles. Merge small rooms.',
     'doors: {id,x,y,w,h,locked} on a wall shared by 2 rooms. Not on a corner.',
     'exits: {id,name,x,y,w,h,locked} on a wall between a room and the outside. Not on a corner.',
-    'Each room needs a door or an exit. people = a realistic count for the room type.',
-    'Return only the JSON object. Example of the format:'
+    'Each room needs a door or an exit.',
+    'notes: maximum 6 short strings. Each note says one thing you saw or heard in the input and where (with the video time, if there is one).'
   ].join('\n');
 
-  async function layoutFromPhoto(cfg, file, example) {
-    const text = await call(cfg, [
-      { text: LAYOUT_RULES + '\n' + JSON.stringify(example) },
-      { inline_data: { mime_type: file.type || 'image/jpeg', data: await toBase64(file) } }
-    ], true);
-    return parseJson(text);
+  const VIDEO_RULES = [
+    'A video is a walkthrough of the venue. Find the rooms and their connections from the path of the camera.',
+    'Estimate sizes from people, doors (about 1 m wide) and furniture.',
+    'Set locked=true for a door or exit that is blocked, chained or closed off in the video.',
+    'For each room in the video, people = the count that you see. Use the audio too (crowd noise, alarms, speech about exits).'
+  ].join('\n');
+
+  const NEW_RULES = [
+    'Convert the venue input (floor plan photo, PDF, drawing, hand sketch, or walkthrough video) to JSON for an evacuation simulator.',
+    'Use a grid of about 80 x 46 cells.',
+    SCHEMA_RULES, VIDEO_RULES,
+    'If there is no video, people = a realistic count for the room type.',
+    'If there is a floor plan and a video: take the geometry from the floor plan; take exits, locked state and people counts from the video.',
+    'Return only the JSON object. Example of the format (add "notes"):'
+  ].join('\n');
+
+  const UPDATE_RULES = [
+    'The JSON below is the current layout of a venue in an evacuation simulator. The video is a walkthrough of the same venue.',
+    'Correct the layout from the video: add, move or remove exits and doors; set locked; set people for each room.',
+    'Do not change a room rectangle unless the video clearly contradicts it. Keep width and height.',
+    SCHEMA_RULES, VIDEO_RULES,
+    'Return only the full corrected JSON object, with "notes". Current layout:'
+  ].join('\n');
+
+  async function layoutFrom(cfg, prompt, files, onStatus) {
+    if (!cfg.key) throw new Error('no API key');
+    const parts = [{ text: prompt }];
+    for (const file of files) parts.push(await mediaPart(cfg, file, onStatus));
+    onStatus('reading ' + files.map(f => f.name).join(' + ') + '…');
+    return parseJson(await call(cfg, parts, true));
   }
+
+  /* files = floor plan and/or walkthrough video. Returns a new layout (+ notes). */
+  const layoutFromMedia = (cfg, files, example, onStatus) => layoutFrom(cfg, NEW_RULES + '\n' + JSON.stringify(example), files, onStatus);
+
+  /* Returns `layout` corrected from a walkthrough video (+ notes). */
+  const updateFromVideo = (cfg, file, layout, onStatus) => layoutFrom(cfg, UPDATE_RULES + '\n' + JSON.stringify(layout), [file], onStatus);
+
+  /* Layout "notes" as shown to the user: what Gemini saw or heard. */
+  const notesOf = layout => (Array.isArray(layout.notes) ? layout.notes : []).slice(0, NOTES_MAX).map(n => String(n).slice(0, NOTE_LEN));
 
   /* status = Sim.status(). Used when there is no key, and as the facts for the LLM. */
   function fallbackAnnouncement(st) {
@@ -90,5 +163,5 @@
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
   }
 
-  window.Gemini = { call, layoutFromPhoto, announce, fallbackAnnouncement, proposeFixes };
+  window.Gemini = { call, layoutFromMedia, updateFromVideo, notesOf, announce, fallbackAnnouncement, proposeFixes };
 })();
