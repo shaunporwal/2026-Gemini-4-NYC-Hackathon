@@ -2,6 +2,8 @@
 
 Context for a new session. Written 2026-11-21 11:35 EST. Read `AGENTS.md` first (rules), then this file.
 
+Note (added on import): the prototype files named below (`AGENTS.md`, `index.html`, `*.js`, `style.css`) are in `prototype/`. Section 4's UI description is older than the one-screen rework: see `docs/pr-docs/`.
+
 ## 1. Situation
 
 - Event: Gemini 4 NYC Hackathon (Cerebral Valley + Google DeepMind). Sat 2026-11-21, 09:00–22:00 EST. In person.

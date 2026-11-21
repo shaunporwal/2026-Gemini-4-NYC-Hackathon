@@ -23,6 +23,7 @@ Planned stack: Vite + TypeScript + three.js (`web/`) and a thin Gemini backend (
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Decisions made so far |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Session handoff: prototype status, Gemini facts, next steps, stage script |
 | [docs/The_Malin_Chelsea_Floor_Plan.pdf](docs/The_Malin_Chelsea_Floor_Plan.pdf) | Venue floor plan (input for the Malin layout) |
+| [docs/pr-docs/](docs/pr-docs/README.md) | One planning doc per PR |
 | [CLAUDE.md](CLAUDE.md) | Rules for coding agents (and a good summary for humans) |
 
 ## Layout

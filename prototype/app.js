@@ -155,14 +155,15 @@
 
   function init() {
     STATS.forEach(([k, label]) => {
-      const tile = el('div', null, 'tile ' + k);
+      const fact = el('div', null, 'fact ' + k);
       const num = el('b', '0'); num.id = 'stat-' + k;
-      tile.append(num, el('span', label));
-      $('stats').append(tile);
+      fact.append(el('span', label), num);
+      $('stats').append(fact);
     });
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
     on('cv', 'click', onCanvasClick);
+    on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
     on('reset', 'click', () => reset());
     on('replay', 'click', () => reset(currentFire().slice()));
