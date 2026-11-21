@@ -244,6 +244,7 @@
     document.querySelectorAll('#views button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
     $('hint3d').hidden = mode !== '3d';
     $('mapLegend').hidden = mode === 'live';
+    $('stage').dataset.view = mode;   // the stylesheet hides the map's own labels over the camera pictures
     $('homeView').disabled = mode === 'live';
     if (state.sim) view.fit(state.sim);
   }

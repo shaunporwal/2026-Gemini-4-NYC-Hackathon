@@ -122,3 +122,16 @@ dialog{width:min(520px,92vw);max-height:88dvh;overflow:auto;background:var(--pan
 @media(max-width:1100px){body{grid-template-columns:minmax(0,1fr) 310px;padding:0 12px 12px;gap:0 10px}.connection{display:none}.mapbar{padding:16px 14px 10px}.mapbar h2{font-size:18px}.maptools{padding:0 14px 10px;gap:10px}#placementNote{width:100%;order:3}.playback{padding:12px}.speed-control{margin-left:0}}
 @media(max-width:760px){html,body{height:auto;min-height:100dvh;overflow:auto}body{display:flex;flex-direction:column;padding:12px;gap:12px}.topbar{flex-wrap:wrap;gap:10px}.brand{flex:1}#preset{order:3;width:100%;max-width:none;margin:0}.workspace{min-height:640px;grid-template-rows:auto auto 300px auto}.sidebar{min-height:400px;max-height:700px}.mapbar{flex-wrap:wrap}#stage{height:300px}#hint3d{display:none}.maplegend{font-size:9px;gap:7px;left:10px;bottom:8px}.stage-label{left:10px;top:10px}.playback-heading{flex-direction:column;gap:4px}#snapshotLabel{text-align:left}.fact{gap:4px;flex-direction:column}.fact b{font-size:19px}.sidebar-foot{flex-shrink:0}.side-panel{max-height:500px}.assistant-intro{padding-top:0}.large-spark{display:none}.composer{margin-top:18px}#liveView .join{display:none}#liveView.empty .none{display:flex}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+/* Cameras view: the pictures get the room. Below them, one compact row: saved frames (left), how to join (right). */
+#stage[data-view="live"] .stage-label { display: none; }
+#liveView { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; padding: var(--gap); }
+#liveView .tiles, #liveView .none { grid-column: 1 / -1; }
+#liveView .saved { grid-column: 1; grid-row: 2; }
+#liveView .saved[hidden] + .join { grid-column: 1 / -1; }
+#liveView .join { grid-column: 2; grid-row: 2; align-self: end; max-width: 300px; --qr: 64px; }
+#liveView .join span:not(.link) { display: none; }
+#liveView .join .link { font-size: 10px; overflow-wrap: anywhere; }
+#liveView .strip { --thumb: 84px; --thumb-h: 44px; }
+#liveView.empty .join { grid-column: 1 / -1; grid-row: 1 / -1; max-width: none; align-self: stretch; --qr: var(--qr-big); }
+#liveView.empty .join span:not(.link) { display: inline; }

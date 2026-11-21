@@ -66,6 +66,7 @@ def phone_url() -> str | None:
 VENUE = os.getenv("VENUE", "" if os.getenv("MAP") else "malin")
 MAP = VenueInfo(load_venue(VENUE, HERE.parent / "prototype" / "layouts.js")) if VENUE else MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
+phone_frame: dict[str, dict[str, tuple[bytes, float]]] = {}  # room -> phone id -> (jpeg, time)
 events: dict[str, asyncio.Event] = {}
 cams: dict[str, dict] = {}  # per-camera working state
 workers: dict[str, asyncio.Task] = {}
@@ -120,6 +121,7 @@ def observation(cam_id: str) -> dict:
     o = {
         "cameraId": cam_id,
         "pose": c.get("pose"),
+        "phones": sorted(p for p, (_, t) in phone_frame.get(cam_id, {}).items() if time.time() - t < POSE_TTL_S),
         "poses": [{k: p[k] for k in ("x", "y", "yaw")} for _, p in sorted(c.get("poses", {}).items())
                   if time.time() - p["t"] < POSE_TTL_S],
         **({"room": MAP.cameras[cam_id]["room"]} if "room" in MAP.cameras.get(cam_id, {}) else {}),
@@ -364,6 +366,7 @@ async def post_frame(cam_id: str, request: Request):
     # More than one phone can film the same room: keep each phone's pose (phone = an id the phone made up).
     phone = request.query_params.get("phone", "")[:40] or "one"
     c.setdefault("poses", {}).pop(phone, None)
+    phone_frame.setdefault(cam_id, {})[phone] = (jpeg, now)   # each phone's own newest picture, for the Cameras view
     if c["pose"]:
         c["poses"][phone] = {**c["pose"], "t": now}
     c["stream"]["lastFrame"] = now
@@ -453,11 +456,12 @@ async def get_layout():
 
 
 @app.get("/frame/{cam_id}/latest.jpg")
-async def latest_jpeg(cam_id: str):
-    """The newest frame of one camera, for the live view on the twin page."""
-    if cam_id not in latest_frame:
+async def latest_jpeg(cam_id: str, phone: str = ""):
+    """The newest frame of one camera, for the live view on the twin page. With ?phone=<id>: that phone's own newest frame."""
+    one = phone_frame.get(cam_id, {}).get(phone) if phone else latest_frame.get(cam_id)
+    if not one:
         return JSONResponse({"error": "no frame"}, status_code=404)
-    return Response(latest_frame[cam_id][0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    return Response(one[0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 CAPTURE_FILE = re.compile(r"^\d+\.jpg$")
