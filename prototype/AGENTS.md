@@ -20,7 +20,8 @@ Hackathon project (Gemini 4 NYC, 2026-11-21). One day. Speed to a working stage 
 | File | Job | Must not contain |
 |---|---|---|
 | `layouts.js` | Preset layouts (data only). Malin Chelsea = the venue; locked exits + head counts there are assumptions | Logic |
-| `sim.js` | Layout schema, fire, smoke, routing, people, scoring, layout actions | DOM, network |
+| `sim.js` | Layout schema, fire, smoke, routing, people, crowd crush and falls, timed events, scoring, layout actions | DOM, network |
+| `analysis.js` | Many scenarios on one layout, what goes wrong (summary, risk map), changes tested on the same scenarios. Runs in Node too | DOM, network |
 | `render.js` | Draw a sim on the canvas (2D) | State changes, network |
 | `renderlive.js` | Live view: phone frames with the sim's smoke and fire over them, saved frames, QR to join. Same interface as `render.js` | State changes |
 | `feed.js` | Talk to the feed server (`server/`): observations, frames, layout, phone link | Sim logic, DOM |
@@ -28,6 +29,7 @@ Hackathon project (Gemini 4 NYC, 2026-11-21). One day. Speed to a working stage 
 | `vendor/three.bundle.js` | three.js 0.170 + OrbitControls as one classic script (built with esbuild from `web/node_modules`). The only package; do not edit | Our code |
 | `gemini.js` | Prompts + Gemini REST call | Sim logic, DOM |
 | `app.js` | Wire DOM events to the modules | Physics, prompts |
+| `advisor.js` | Wire the Advisor tab to `analysis.js` and `gemini.js` (the agent loop) | Physics, prompts |
 | `index.html`, `style.css` | Markup, look | Logic |
 
 ## Design rule

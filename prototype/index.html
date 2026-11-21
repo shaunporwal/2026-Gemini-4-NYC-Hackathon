@@ -14,6 +14,7 @@
   <div id="views" role="group" aria-label="View">
     <button data-view="2d">2D</button><button data-view="3d">3D</button><button data-view="live">Live</button>
   </div>
+  <button id="advisorTab" aria-pressed="false">Advisor</button>
   <button id="freeze" aria-pressed="false">Freeze twin</button>
   <button id="setup">Setup</button>
 </header>
@@ -88,6 +89,31 @@
   </table>
 </aside>
 
+<section id="advisor" aria-label="Safety advisor">
+  <div class="advCol">
+    <div class="advHead">
+      <h2>Safety advisor</h2>
+      <select id="advRuns" aria-label="Scenarios"><option value="12">12 scenarios</option><option value="24" selected>24 scenarios</option><option value="48">48 scenarios</option></select>
+      <button id="advRun" class="primary">Run analysis</button>
+    </div>
+    <p class="advNote">Runs the twin on screen many times: fires in different rooms, a fall at a doorway, evacuations with no fire, a blocked exit. Crowd crush and falls are on. Then it tests changes on the same scenarios and writes a guide.</p>
+    <progress id="advProgress" max="1" value="0"></progress>
+    <p id="advStatus" aria-live="polite">Not run yet.</p>
+    <h3>Risk map <span class="key lost">lost</span><span class="key falls">fell</span></h3>
+    <div id="advMapWrap"><canvas id="advMap"></canvas></div>
+    <h3>Agent thoughts</h3>
+    <ol id="advThoughts"></ol>
+  </div>
+  <div class="advCol">
+    <div class="advHead"><h3>Advice guide</h3><button id="advCopy" disabled>Copy</button></div>
+    <div id="advGuide"><p class="by">Run the analysis to get a guide for this venue.</p></div>
+    <h3>Changes tested (same scenarios)</h3>
+    <table><thead><tr><th>Change</th><th>From</th><th>Lost / run</th><th>Crush falls</th><th>Better / worse</th></tr></thead><tbody id="advTests"></tbody></table>
+    <h3>Scenarios <span class="advNote">click one to watch it</span></h3>
+    <table class="scen"><thead><tr><th>#</th><th>Scenario</th><th>Lost</th><th>Falls</th><th>Time</th></tr></thead><tbody id="advScenarios"></tbody></table>
+  </div>
+</section>
+
 <footer>
   <div class="row">
     <button id="pause">Play / Pause</button>
@@ -110,13 +136,14 @@
   <label>Gemini API key <span id="keyState"></span><input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
   <div class="row">
     <label>Fast: photos, PA, fixes <input id="model" type="text" value="gemini-4-hydrogen"></label>
-    <label>Reasoning: floor plan <input id="deep" type="text" value="gemini-4-neon"></label>
+    <label>Reasoning: floor plan, advice <input id="deep" type="text" value="gemini-4-neon"></label>
   </div>
   <div class="options">
     <label><span>Gemini writes the PA text</span><input id="gpa" type="checkbox" checked></label>
     <label><span>Speak the PA text</span><input id="voice" type="checkbox" checked></label>
     <label><span>Fire seen or alarm heard by a phone starts the fire</span><input id="autofire" type="checkbox" checked></label>
     <label><span>Only people that phones see right now</span><input id="liveOnly" type="checkbox"></label>
+    <label><span>Crowd crush and falls in the twin (always on in the Advisor)</span><input id="crowd" type="checkbox"></label>
   </div>
   <label>Floor plan and/or video → new twin <input id="media" type="file" multiple accept="image/*,application/pdf,video/*"></label>
   <label>Room photo or video → update this twin <input id="walk" type="file" multiple accept="image/*,video/*"></label>
@@ -126,6 +153,7 @@
 
 <script src="layouts.js"></script>
 <script src="sim.js"></script>
+<script src="analysis.js"></script>
 <script src="render.js"></script>
 <script src="vendor/three.bundle.js"></script>
 <script src="render3d.js"></script>
@@ -133,5 +161,6 @@
 <script src="gemini.js"></script>
 <script src="feed.js"></script>
 <script src="app.js"></script>
+<script src="advisor.js"></script>
 </body>
 </html>

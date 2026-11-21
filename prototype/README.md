@@ -44,6 +44,20 @@ Pick a door or exit in the queue panel to see its current and peak queue, distin
 
 Each waiting person adds 0.5 person-seconds per tick. Waiting smoke exposure sums the local smoke index (0–1) multiplied by those seconds. For example, four people waiting for two seconds at an index of 0.5 contribute eight person-seconds and four smoke-seconds. Reset or replay starts the counters fresh.
 
+### Advisor tab (analysis agent)
+
+**Advisor** in the header opens a tab that analyses the twin on screen. **Run analysis**:
+
+1. Runs 12, 24 or 48 scenarios headless (about 2–5 s): fires started in rooms weighted by floor area, a fire plus a person falling at a doorway, an evacuation with no fire (false alarm, threat), and an evacuation with one exit blocked. Crowd crush and falls are on in every run.
+2. Summarises what went wrong: losses by cause (fire, smoke, crush), the busiest openings, the costliest fire starts, the worst scenarios. The **risk map** shows where people were lost (red) and where they fell (amber) over all runs.
+3. Picks changes to test: search (unlock each locked exit, widen the 2 busiest openings, cap the room whose fires cost the most) plus up to 4 from the fast model (Hydrogen). New actions: `widen` (an opening 1 m wider) and `cap_room` (an occupancy limit).
+4. Runs every scenario again with each change, so each result is a measured difference on the same scenarios (mean lost per run, crush falls, runs better / worse).
+5. The reasoning model (Neon) writes the **advice guide** from those numbers: the most prevalent hazards, what staff do when each happens, prevention ranked by measured effect, what to watch for. It is told never to recommend a change that tested worse. Without a key, a template guide is built from the same numbers.
+
+**Agent thoughts** shows each step: the loop's own steps (`Agent`), each measured result (`Sim`) and the models' thought summaries as they stream. Click a scenario row to replay it in 2D / 3D. **Copy** puts the guide on the clipboard as Markdown. Timing measured on the Malin (Gemini) preset with 24 scenarios: runs + tests about 8 s, Hydrogen proposals about 6 s, Neon guide about 75 s (its thoughts stream meanwhile).
+
+**Crowd model** (`sim.js`, demo heuristics, not calibrated): a cell holds one person, so crush pressure comes from the queue at an opening, people waiting per metre of its width. Above 16 per metre, people within 2 cells of the opening build up pressure; at 8 pressure-seconds they fall. A fallen person (amber) blocks their cell, breathes smoke, is lost if the press continues (24 pressure-seconds), and otherwise gets up after 25 s and walks at half speed. Random trips (more likely in thick smoke) use their own RNG, so fire and placement stay matched. Timed events: `fall` (the person nearest a cell falls), `block` (an opening becomes unusable), `alarm` (evacuation without fire). Setup → "Crowd crush and falls in the twin" turns the crowd model on for ordinary runs too; it is off by default, so existing fire-only results are unchanged.
+
 Layouts (`layouts.js`):
 
 - **The Malin Chelsea (approx.)**: the hackathon venue, traced by hand from the public floor plan. Street doors (7th Ave, 26th St) follow the plan. The 2 locked exits (X1, X2) and all head counts are assumptions for the demo.

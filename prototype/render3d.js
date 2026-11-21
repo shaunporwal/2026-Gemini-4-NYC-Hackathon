@@ -10,7 +10,7 @@
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
     sky: 0x0e1116, floor: 0x3a4150, wall: 0xb8bcc6, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
-    route: 0x5ad1ff, queued: 0xb6ef69, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
+    route: 0x5ad1ff, queued: 0xb6ef69, trapped: 0xff4fd8, down: 0x8a2626, fallen: 0xffb020, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
   };
   const PERSON = { bodyH: 1.1, bodyW: 0.42, head: 0.34 };
   /* Furniture from layout.objects: [height in m, share of the cell that the voxel fills]. */
@@ -186,8 +186,8 @@
       let np = 0;
       for (const p of sim.people) {
         if (p.state === F.OUT) continue;
-        const x = p.i % W, y = (p.i / W) | 0, isDown = p.state === F.DOWN;
-        const color = isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : COLOR.route;
+        const x = p.i % W, y = (p.i / W) | 0, isDown = p.state === F.DOWN || p.state === F.INJURED;
+        const color = p.state === F.INJURED ? COLOR.fallen : isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : COLOR.route;
         if (isDown) {   // lying on the floor
           put(bodies, np, x, y, FLOOR_T, PERSON.bodyW, PERSON.bodyH * 0.8, PERSON.bodyW, color);
           put(heads, np++, x, y, FLOOR_T, 0.01, 0.01, 0.01, COLOR.head);

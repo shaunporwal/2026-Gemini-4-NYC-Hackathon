@@ -4,7 +4,8 @@
   const F = window.FireSim;
   const CELL = { [F.FLOOR]: '#171b22', [F.WALL]: '#465064', [F.LOCKED]: '#d0342c', [F.DOOR]: '#222a36', [F.EXIT]: '#2ecc71' };
   const OUTSIDE = '#0c0f14', FURNITURE = '#7a5a3a';
-  const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626' };
+  const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626', fallen: '#ffb020' };
+  const HEAT = { lost: [255, 79, 79], falls: [255, 176, 32] };   // risk map: where people were lost, where they fell
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
   const MARK = { ms: 2500, px: 3, color: '#7cc4ff' };
@@ -97,6 +98,20 @@
       }
     }
 
+    /* Risk map (Advisor): heat = {lost, falls, runs} per cell, summed over many runs. Brighter = more often. */
+    function riskOverlay(sim, heat) {
+      for (const [key, rgb] of [['lost', HEAT.lost], ['falls', HEAT.falls]]) {
+        const h = heat[key]; let max = 0;
+        for (let i = 0; i < sim.N; i++) if (h[i] > max) max = h[i];
+        if (!max) continue;
+        for (let i = 0; i < sim.N; i++) {
+          if (!h[i]) continue;
+          ctx.fillStyle = 'rgba(' + rgb.join(',') + ',' + (0.35 + 0.65 * Math.sqrt(h[i] / max)).toFixed(2) + ')';
+          ctx.fillRect((i % sim.W) * cs, ((i / sim.W) | 0) * cs, cs, cs);
+        }
+      }
+    }
+
     function draw(sim, t, extra) {
       const marks = extra && extra.marks;
       const { W, N } = sim;
@@ -114,6 +129,7 @@
         }
       }
       shown = sim;
+      if (extra && extra.heat) riskOverlay(sim, extra.heat);
       for (const o of sim.openings) {
         if (o.kind !== 'exit') continue;
         const e = o.ref, cx = e.x + e.w / 2, cy = e.y + e.h / 2;
@@ -121,10 +137,10 @@
         const dx = open(e.x + e.w, e.y) ? 1.7 : open(e.x - 1, e.y) ? -1.7 : 0, dy = open(e.x, e.y + e.h) ? 1.4 : open(e.x, e.y - 1) ? -1.4 : 0;
         text(e.id, (cx + dx) * cs, (cy + dy) * cs, Math.max(EXIT_PX * dpr, cs), e.locked ? '#ff8a84' : '#7dffb0');
       }
-      for (const p of sim.people) {
+      for (const p of extra && extra.heat ? [] : sim.people) {
         if (p.state === F.OUT) continue;
-        const down = p.state === F.DOWN;
-        ctx.fillStyle = down ? PERSON.down : sim.trapped(p) ? PERSON.trapped : PERSON.route;
+        const down = p.state === F.DOWN || p.state === F.INJURED;
+        ctx.fillStyle = p.state === F.INJURED ? PERSON.fallen : down ? PERSON.down : sim.trapped(p) ? PERSON.trapped : PERSON.route;
         ctx.beginPath();
         ctx.arc((p.i % W + 0.5) * cs, (((p.i / W) | 0) + 0.5) * cs, cs * (down ? 0.28 : 0.38), 0, 6.283);
         ctx.fill();

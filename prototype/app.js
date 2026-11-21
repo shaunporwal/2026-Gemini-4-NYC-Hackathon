@@ -30,7 +30,7 @@
   };
   let view = null;
   let comparison = null;
-  const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
+  const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value, crowd: $('crowd').checked });
   const cfg = () => ({ key: $('key').value.trim(), model: $('model').value.trim(), deep: $('deep').value.trim() });
   const currentFire = () => (state.sim.ignitions.length ? state.sim.ignitions : state.lastIgn);
 
@@ -105,13 +105,13 @@
       : 'A person counts once per opening when their next step is blocked by another person in its queue.';
   }
 
-  /* New sim on the current layout. With ignitions: replay that fire. */
-  function reset(ignitions) {
+  /* New sim on the current layout. With ignitions: replay that fire. events/extra: an Advisor scenario. */
+  function reset(ignitions, events, extra) {
     comparison = null;
     $('awarenessResults').hidden = true;
     state.annSeq++;
-    state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions }));
-    state.running = !!(ignitions && ignitions.length);
+    state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions, events }, extra));
+    state.running = !!((ignitions && ignitions.length) || (events && events.length));
     state.annKey = ''; state.acc = 0;
     if (!state.running) $('pa').textContent = PA_IDLE;   // a fresh sim: clear the last run's announcement (no speech)
     view.fit(state.sim);
@@ -604,6 +604,16 @@
     }
     requestAnimationFrame(frame);
   }
+
+  /* For the Advisor tab (advisor.js): the twin on screen, the Gemini settings, and showing one of its scenarios here. */
+  window.FireApp = {
+    layout: () => state.layout, cfg, fireRate: () => +$('rate').value,
+    replay(s) {
+      reset(s.ignitions, s.events, { seed: s.seed, crowd: true });
+      state.label = 'Advisor scenario ' + s.id; showLabel();
+      log('Advisor scenario ' + s.id + ': ' + s.label + ' (seed ' + s.seed + ', crowd crush and falls on).');
+    }
+  };
 
   init();
 })();
