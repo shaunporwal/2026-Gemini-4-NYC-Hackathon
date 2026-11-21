@@ -10,6 +10,7 @@
   const DETAIL_S = 12;   // while its phone streams, a room is rebuilt from the camera this often
   const DETAIL_ROOMS = 3;   // rooms that Gemini reads at the same time (1 for each phone)
   const TWIN_LIVE = 'Freeze twin', TWIN_FROZEN = 'Resume live';
+  const PLANS_STORE = 'fireTwinPlans', SAVED = 'saved:', PLAN_ADD = '+ Floor plan', PLAN_READING = 'Gemini reads…';
   const LIVE_GONE_S = 10;   // with "only what phones see" on: a room with no frame for this long is emptied
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
@@ -538,6 +539,36 @@
     requestAnimationFrame(frame);
   }
 
+  /* Floor plans the presenter uploaded: kept in this browser (localStorage), listed with the presets, can be deleted. */
+  const savedPlans = () => Object.fromEntries(Object.entries(LAYOUTS).filter(([k]) => k.startsWith(SAVED)));
+  const storePlans = () => localStorage.setItem(PLANS_STORE, JSON.stringify(savedPlans()));
+  const showDelete = () => { $('delPlan').hidden = !FEED.presenter || !$('preset').value.startsWith(SAVED); };
+  /* The twin while Gemini still writes it: draw what is complete so far (2D or 3D, the view on screen). */
+  function buildPreview(P) {
+    if (!(P.width > 0 && P.height > 0) || !(P.rooms || []).length) return;
+    const L = F.clone({ name: P.name || '', width: P.width, height: P.height, rooms: P.rooms, doors: P.doors || [], exits: P.exits || [] });
+    const errs = F.validateLayout(L).filter(e => !/^no /.test(e));   // exits come last: not an error yet
+    if (errs.length) return;
+    try {
+      const sim = new F.Sim(L, simOpts());
+      state.sim = sim; state.running = false;
+      view.fit(sim);
+      $('pa').textContent = ('Gemini builds the twin: ' + L.rooms.length + ' rooms, ' + L.doors.length + ' doors, ' + L.exits.length + ' exits…');
+    } catch (e) { /* this piece cannot be drawn yet: wait for the next one */ }
+  }
+
+  function savePlan(L, fileName) {
+    const names = Object.values(LAYOUTS).map(x => x.name), base = String(L.name || fileName).slice(0, 50);
+    let name = base;
+    for (let n = 2; names.includes(name); n++) name = base + ' (' + n + ')';   // the name finds the plan again after a reload
+    L.name = name;
+    const key = SAVED + Date.now();
+    LAYOUTS[key] = F.clone(L);
+    const o = el('option', name); o.value = key; $('preset').append(o);
+    storePlans();
+    return key;
+  }
+
   function init() {
     STATS.forEach(([k, label]) => {
       const fact = el('div', null, 'fact ' + k);
@@ -566,7 +597,7 @@
     on('fix', 'click', guarded('Fix', findFix));
     on('apply', 'click', applyFix);
     on('loadJson', 'click', guarded('Layout', () => loadLayout(JSON.parse($('json').value))));
-    on('preset', 'change', () => loadLayout(F.clone(LAYOUTS[$('preset').value])));
+    on('preset', 'change', () => { loadLayout(F.clone(LAYOUTS[$('preset').value])); showDelete(); });
     /* job(files, status) -> {layout, note}. The status line shows each step and the time the call took. */
     const fromGemini = (what, job) => guarded(what, async ev => {
       const files = [...ev.target.files]; ev.target.value = '';
@@ -578,12 +609,49 @@
     });
     on('media', 'change', fromGemini('New twin', async (files, status) =>
       ({ layout: await G.layoutFromMedia(cfg(), files, LAYOUTS.demo, status), note: 'layout loaded.' })));
+    /* "+ Floor plan": a PDF or picture -> Gemini -> a new twin, kept in the list of layouts (this browser). */
+    on('addPlan', 'click', () => {
+      if (!cfg().key) { log(KEY_MISSING + ' Open Setup first.'); $('setupDlg').showModal(); return; }
+      $('planFile').click();
+    });
+    on('planFile', 'change', guarded('Floor plan', async ev => {
+      const files = [...ev.target.files]; ev.target.value = '';
+      if (!files.length) return;
+      const t0 = Date.now(), b = $('addPlan'), secs = () => Math.round((Date.now() - t0) / 1000);
+      const tick = setInterval(() => { b.textContent = PLAN_READING + ' ' + secs() + ' s'; }, 1000);
+      b.disabled = true; b.textContent = PLAN_READING;
+      log('Gemini reads ' + files[0].name + ' and builds the twin…');
+      try {
+        // The fast model, read while it writes: each finished room, door and exit goes on screen at once.
+        const L = await G.layoutLive(cfg(), files, LAYOUTS.demo, msg => log('Gemini: ' + msg), buildPreview);
+        const errs = F.validateLayout(L);
+        if (errs.length) throw new Error(errs.join('; '));
+        const key = savePlan(L, files[0].name);
+        $('preset').value = key;
+        loadLayout(F.clone(LAYOUTS[key]));
+        log('New twin from ' + files[0].name + ': ' + L.rooms.length + ' rooms, ' + L.exits.length + ' exits, in ' + secs() + ' s.');
+      } catch (e) { reset(); throw e; }   // back to the twin that was on screen
+      finally { clearInterval(tick); b.disabled = false; b.textContent = PLAN_ADD; showDelete(); }
+    }));
+    on('delPlan', 'click', () => {
+      const key = $('preset').value;
+      if (!key.startsWith(SAVED) || !confirm('Delete "' + LAYOUTS[key].name + '"?')) return;
+      const name = LAYOUTS[key].name;
+      delete LAYOUTS[key];
+      $('preset').querySelector('option[value="' + key + '"]').remove();
+      storePlans();
+      $('preset').selectedIndex = 0;
+      loadLayout(F.clone(LAYOUTS[$('preset').value]));
+      showDelete();
+      log('Deleted the floor plan ' + name + '.');
+    });
     on('walk', 'change', fromGemini('Update', async (files, status) => {
       const res = F.applyObservation(state.layout, await G.observe(cfg(), files, state.layout, status));
       if (!res) throw new Error('Gemini did not match a room of this layout');
       return { layout: res.layout, note: 'Gemini placed this in ' + res.rooms.join(' + ') + '.' };
     }));
     window.addEventListener('resize', () => view.fit(state.sim));
+    try { Object.assign(LAYOUTS, JSON.parse(localStorage.getItem(PLANS_STORE) || '{}')); } catch (e) { /* no saved plans */ }
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
     /* The key survives a reload of this tab (sessionStorage). It is never written to a file. */
     const keyChanged = () => {
@@ -599,8 +667,9 @@
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     // Read the remembered twin BEFORE the default layout loads: loading a layout overwrites what is remembered.
     if (!(FEED.presenter && restoreInformed())) loadLayout(F.clone(LAYOUTS[$('preset').value]));
+    showDelete();
     if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
-      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = $('freeze').hidden = true;
+      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = $('freeze').hidden = $('addPlan').hidden = true;
       FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});
     }
     requestAnimationFrame(frame);

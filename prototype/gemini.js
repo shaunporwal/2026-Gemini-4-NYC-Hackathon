@@ -37,6 +37,58 @@
     return text;
   }
 
+  /* The same call, but the reply comes in pieces (server-sent events). onText(all text so far) for each piece. */
+  async function stream(cfg, parts, opts, onText) {
+    if (!cfg.key) throw new Error('no API key');
+    const config = { responseMimeType: 'application/json' };
+    if (opts.thinking) config.thinkingConfig = { thinkingLevel: opts.thinking };
+    const res = await fetch(ENDPOINT + encodeURIComponent((opts.deep && cfg.deep) || cfg.model) + ':streamGenerateContent?alt=sse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: config })
+    });
+    if (!res.ok) throw new Error('Gemini ' + res.status + ': ' + (await res.text()).slice(0, 300));
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '', text = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        let d = null;
+        try { d = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        const out = ((d.candidates || [])[0] || {}).content;
+        const add = ((out && out.parts) || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
+        if (add) { text += add; onText(text); }
+      }
+    }
+    if (!text) throw new Error('Gemini: empty reply');
+    return text;
+  }
+
+  /* The start of a JSON object that is still being written -> the object so far: cut after the last
+   * finished item of a list, then close what is open. Null if nothing is usable yet. */
+  function partialJson(text) {
+    const start = text.indexOf('{');
+    if (start < 0) return null;
+    const stack = [];
+    let inStr = false, esc = false, cut = -1, closers = '';
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+      else if (ch === '}' || ch === ']') {
+        stack.pop();
+        if (stack.length >= 1) { cut = i + 1; closers = stack.slice().reverse().join(''); }
+      }
+    }
+    if (cut < 0) return null;
+    try { return JSON.parse(text.slice(start, cut) + closers); } catch (e) { return null; }
+  }
+
   function parseJson(text) {
     const a = text.indexOf('{'), b = text.lastIndexOf('}');
     if (a < 0 || b < a) throw new Error('Gemini: no JSON in reply');
@@ -116,6 +168,7 @@
     'For each room in the video, people = the count that you see. Use the audio too (crowd noise, alarms, speech about exits).'
   ].join('\n');
 
+  const LIVE_ORDER = 'Write the keys in this order: name, width, height, rooms, doors, exits, then the others.';
   const NEW_RULES = [
     'Convert the venue input (floor plan photo, PDF, drawing, hand sketch, or walkthrough video) to JSON for an evacuation simulator.',
     'Use a grid of about 80 x 46 cells.',
@@ -158,6 +211,20 @@
 
   /* files = floor plan and/or walkthrough video. Returns a new layout (+ notes). */
   const layoutFromMedia = (cfg, files, example, onStatus) => layoutFrom(cfg, NEW_RULES + '\n' + JSON.stringify(example), files, onStatus, DEEP);
+
+  /* The same, live: the reply is read while Gemini writes it. onPartial(layout so far) each time 1 more room,
+   * door or exit is complete. opts picks the model and the thinking level. */
+  async function layoutLive(cfg, files, example, onStatus, onPartial, opts) {
+    const parts = [{ text: NEW_RULES + '\n' + JSON.stringify(example) + '\n' + LIVE_ORDER }];
+    for (const file of files) parts.push(await mediaPart(cfg, file, onStatus));
+    onStatus('reading ' + files.map(f => f.name).join(' + ') + '…');
+    let seen = 0;
+    const text = await stream(cfg, parts, opts || FAST, all => {
+      const p = partialJson(all), n = p ? ['rooms', 'doors', 'exits'].reduce((a, k) => a + ((p[k] || []).length), 0) : 0;
+      if (n > seen) { seen = n; onPartial(p); }
+    });
+    return parseJson(text);
+  }
 
   /* files = photos or video of rooms of `layout`. Returns an observation for FireSim.applyObservation.
    * The reply is a small patch, not a whole layout: that keeps the call fast. */
@@ -226,5 +293,5 @@
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
   }
 
-  window.Gemini = { call, layoutFromMedia, observe, observeRoom, notesOf, announce, fallbackAnnouncement, proposeFixes };
+  window.Gemini = { call, layoutFromMedia, layoutLive, partialJson, observe, observeRoom, notesOf, announce, fallbackAnnouncement, proposeFixes };
 })();
