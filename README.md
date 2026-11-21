@@ -24,6 +24,7 @@ Built at the Gemini NYC Hackathon (2026-11-21).
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Decisions made so far |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Session handoff: prototype status, Gemini facts, next steps, stage script |
 | [docs/The_Malin_Chelsea_Floor_Plan.pdf](docs/The_Malin_Chelsea_Floor_Plan.pdf) | Venue floor plan (input for the Malin layout) |
+| [specs/](specs/README.md) | TLA+ state-machine model of the phone page: 3 faults found and fixed |
 | [docs/EVAL.md](docs/EVAL.md) | Evaluation log: real inputs, timings, failures, changes |
 | [docs/pr-docs/](docs/pr-docs/README.md) | One planning doc per PR |
 | [CLAUDE.md](CLAUDE.md) | Rules for coding agents (and a good summary for humans) |

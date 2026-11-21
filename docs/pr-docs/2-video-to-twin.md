@@ -45,7 +45,11 @@ Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (onl
 - [x] Decisions API (`gemini-decision-1`) called from the browser: works, about 1 s, room choice + crowd level + blocked exit in 1 call (test only, not in the app yet)
 - [x] 2 Gemini 4 models, 1 job each: Hydrogen (photos, PA; thinking low) and Neon (floor plan, fixes). Photo update: 42 s -> 9 s
 - [ ] Room match with reference photos (enrolment), then put Decision 1 in the app as the fast first step
-- [ ] Phone page: several phones send room photos to the twin (phone -> Mac on the venue wifi works)
+- [x] Perception server (Elijah, `server/`) runs on the demo Mac with the real key: Decisions 1.4 s + Hydrogen 6.2 s on the test photo. Key and floor plan come from the twin page (local requests only)
+- [x] Twin listens to the server: "Live camera" table, head count per room before the fire, a camera that sees fire starts the fire (switch in Setup; not tested with real footage)
+- [x] Phone page rebuilt: floor plan with a key number on every room + list, camera starts on confirm, one-photo fallback; tunnel (cloudflared) gives phones HTTPS
+- [x] TLA+ model of the phone page (`specs/`): 3 timing faults found and fixed with a session number
+- [ ] Real iPhone: live video, microphone clips, several phones at once
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
