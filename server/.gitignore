@@ -1,4 +1,4 @@
-metrics.csv
+metrics*.csv
 breaking_point.csv
 eval_results.csv
 eval_frames/

@@ -123,7 +123,7 @@ export interface Agent {
 export interface Observation {
   cameraId: string; // a CameraDef.id from the map
   timestamp: number; // ms epoch, when the frame arrived
-  peopleCount: number; // people seen (Hydrogen); 0 when Decisions says nobody is there
+  peopleCount: number; // Decisions' fast estimate within ~1 s of a change, then Hydrogen's exact count
   density?: "empty" | "sparse" | "moderate" | "crowded" | "packed"; // Decisions, every frame
   events?: string[]; // any of "fire", "smoke", "exit_blocked", "alarm", "screaming"
   summary?: string; // one-line scene description (Hydrogen); never identifies people

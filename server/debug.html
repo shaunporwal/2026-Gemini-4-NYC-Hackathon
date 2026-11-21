@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Perception debug</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; background: #111; color: #eee; }
+  #wrap { position: relative; display: inline-block; max-width: 100%; }
+  img { display: block; max-width: 100%; max-height: 80vh; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #s { margin: 8px 0; font-size: 16px; line-height: 1.5; }
+  select { font-size: 16px; }
+</style>
+</head>
+<body>
+<label>Camera <select id="cam"></select></label>
+<div id="s">Waiting for the first Hydrogen count…</div>
+<div id="wrap"><img id="img" alt=""><canvas id="c"></canvas></div>
+<script>
+// Shows the last frame Hydrogen counted, with a numbered dot on each person it found (its foot point).
+// Works only on this laptop (localhost); the server refuses it through the tunnel.
+const sel = document.getElementById('cam'), img = document.getElementById('img'),
+      cv = document.getElementById('c'), s = document.getElementById('s');
+fetch('/').then(r => r.json()).then(j => {
+  sel.innerHTML = Object.entries(j.cameras).map(([id, x]) => `<option value="${id}">${x.name} (${id})</option>`).join('');
+  const q = new URLSearchParams(location.search).get('id'); if (q) sel.value = q;
+  tick(); setInterval(tick, 2000);
+});
+let lastAge = null;
+async function tick() {
+  const id = sel.value;
+  const r = await fetch('/debug/info/' + encodeURIComponent(id));
+  if (!r.ok) { s.textContent = 'No Hydrogen count yet for ' + id; return; }
+  const d = await r.json();
+  s.innerHTML = `Hydrogen counted <b>${d.hydrogenCount}</b> (${d.age_s} s ago) · shown now <b>${d.shownCount}</b> · ` +
+    `Decisions range ${d.range ?? '-'} (${d.rangeConf})<br>${d.summary || ''}`;
+  if (lastAge !== null && d.age_s >= lastAge) { lastAge = d.age_s; return; }  // same frame as before
+  lastAge = d.age_s;
+  img.onload = () => draw(d.points);
+  img.src = '/debug/frame/' + encodeURIComponent(id) + '?t=' + Date.now();
+}
+function draw(points) {
+  cv.width = img.clientWidth; cv.height = img.clientHeight;
+  const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+  g.font = 'bold 14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  points.forEach(([x, y], i) => {
+    const px = x * cv.width, py = y * cv.height;
+    g.fillStyle = '#ff2d55'; g.beginPath(); g.arc(px, py, 11, 0, 7); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#fff'; g.fillText(String(i + 1), px, py + 1);
+  });
+}
+</script>
+</body>
+</html>
