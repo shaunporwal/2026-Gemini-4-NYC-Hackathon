@@ -18,6 +18,7 @@ import asyncio
 import csv
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -316,6 +317,31 @@ async def latest_jpeg(cam_id: str):
     if cam_id not in latest_frame:
         return JSONResponse({"error": "no frame"}, status_code=404)
     return Response(latest_frame[cam_id][0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+CAPTURE_FILE = re.compile(r"^\d+\.jpg$")
+CAPTURES_PER_ROOM = 12
+
+
+@app.get("/captures")
+async def list_captures():
+    """Saved frames (SAVE_FRAMES=1), newest first, for each room: [{file, t}] where t is ms since 1970."""
+    out = {}
+    if EVAL_DIR.is_dir():
+        for d in sorted(p for p in EVAL_DIR.iterdir() if p.is_dir()):
+            files = sorted((f.name for f in d.iterdir() if CAPTURE_FILE.match(f.name)), reverse=True)[:CAPTURES_PER_ROOM]
+            if files:
+                out[d.name] = [{"file": f, "t": int(f[:-4])} for f in files]
+    return {"saving": SAVE_FRAMES, "rooms": out}
+
+
+@app.get("/captures/{room}/{file}")
+async def get_capture(room: str, file: str):
+    """One saved frame. Only a file name of digits + .jpg inside a room folder that exists."""
+    folder = next((p for p in EVAL_DIR.iterdir() if p.is_dir() and p.name == room), None) if EVAL_DIR.is_dir() else None
+    if not folder or not CAPTURE_FILE.match(file) or not (folder / file).is_file():
+        return JSONResponse({"error": "no such capture"}, status_code=404)
+    return FileResponse(folder / file, media_type="image/jpeg")
 
 
 @app.get("/qr.svg")

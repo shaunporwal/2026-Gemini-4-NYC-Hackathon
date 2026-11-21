@@ -16,7 +16,8 @@
     '2d': { canvas: 'cv', make: window.FireRender },
     '3d': { canvas: 'cv3d', make: window.FireRender3D },
     'live': { canvas: 'liveView', make: { create: (node, wrap) => window.FireRenderLive.create(node, wrap,
-      { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info }) } }
+      { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info,
+        captures: FEED.captures, captureUrl: FEED.captureUrl }) } }
   };
   let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });

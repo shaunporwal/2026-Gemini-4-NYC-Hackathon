@@ -35,7 +35,7 @@
   --fs-title: 18px;
   --mono: ui-monospace, Menlo, monospace;
   --select-arrow-space: 44px;
-  --qr: 112px; --qr-big: 220px; --tile-min: 220px;
+  --qr: 112px; --qr-big: 220px; --tile-min: 220px; --thumb: 104px; --thumb-h: 60px;
 }
 
 * { box-sizing: border-box; }
@@ -71,7 +71,7 @@ canvas { cursor: crosshair; border-radius: 4px; }
 #liveView .tiles { flex: 1; min-height: 0; display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(var(--tile-min), 1fr)); grid-auto-rows: minmax(0, 1fr); }
 #liveView figure { position: relative; margin: 0; min-height: 0; border-radius: var(--radius); overflow: hidden; background-color: var(--panel); border: 1px solid var(--line); }
 #liveView figure img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#liveView figure.stopped img { opacity: .35; }
+#liveView figure.alarm { border-color: var(--bad); }
 #liveView .haze, #liveView .glow { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
 #liveView .haze { background-color: var(--smoke); }
 #liveView .glow { background-image: linear-gradient(to top, var(--fire) 0%, transparent 70%); mix-blend-mode: screen; }
@@ -81,7 +81,19 @@ canvas { cursor: crosshair; border-radius: 4px; }
 #liveView .join span { color: var(--muted); font-size: var(--fs-small); }
 #liveView .join .link { color: var(--text); font-family: var(--mono); }
 #liveView .qr { width: var(--qr); height: var(--qr); flex: none; border-radius: 6px; }
+/* Saved frames: one row that scrolls sideways inside itself. Tap one to see it in the picture above. */
+#liveView .saved { flex: none; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#liveView .saved[hidden] { display: none; }
+#liveView .saved > span { color: var(--muted); font-size: var(--fs-small); }
+#liveView .strip { display: flex; gap: var(--gap); overflow-x: auto; scrollbar-width: none; }
+#liveView .strip::-webkit-scrollbar { display: none; }
+#liveView .strip button { flex: none; width: var(--thumb); min-height: 0; padding: 0 0 4px; display: flex; flex-direction: column; overflow: hidden; text-align: left; }
+#liveView .strip img { width: 100%; height: var(--thumb-h); object-fit: cover; display: block; background-color: var(--panel); }
+#liveView .strip span { padding: 0 6px; font-size: 11px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#liveView .strip span + span { color: var(--muted); }
 #liveView.empty .tiles { display: none; }
+/* Phone, no picture yet: say what to do (the QR code is for the big screen). */
+#liveView .none { display: none; flex: 1; align-items: center; justify-content: center; text-align: center; padding: var(--gutter); color: var(--muted); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
 #liveView.empty .join { flex: 1; flex-direction: column; justify-content: center; text-align: center; }
 #liveView.empty .qr { width: var(--qr-big); height: var(--qr-big); }
 
@@ -167,6 +179,9 @@ label { display: block; color: var(--muted); font-size: var(--fs-small); }
   header:has(#pages:not([hidden])) h1 { display: none; }
   #pages a { min-width: 76px; padding: 0 12px; }
   #pa { min-height: 36px; padding: 4px var(--gutter); font-size: var(--fs); line-height: 1.25; }
+  /* On a phone the picture gets the space: the join panel shows only when there is no picture. */
+  #liveView .join { display: none; }
+  #liveView.empty .none { display: flex; }
 }
 
 @media (min-width: 820px) {

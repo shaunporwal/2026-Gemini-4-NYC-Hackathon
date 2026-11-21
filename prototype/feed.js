@@ -46,5 +46,9 @@
   /* The presenter's current layout, for a copy of the page that someone else opens. Null if there is none. */
   const layout = () => fetch(BASE + '/layout').then(r => (r.ok ? r.json() : null));
 
-  window.Feed = { configure, listen, frameUrl, qrUrl, info, layout, presenter: PRESENTER };
+  /* Frames the server saved from phones: {rooms: {room: [{file, t}]}}, and the address of one of them. */
+  const captures = () => fetch(BASE + '/captures').then(r => r.json());
+  const captureUrl = (room, file) => BASE + '/captures/' + encodeURIComponent(room) + '/' + encodeURIComponent(file);
+
+  window.Feed = { configure, listen, frameUrl, qrUrl, info, layout, captures, captureUrl, presenter: PRESENTER };
 })();
