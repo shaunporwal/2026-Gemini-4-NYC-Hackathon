@@ -5,13 +5,15 @@
   'use strict';
   /* On the demo machine the page comes from its own small server (port 8765) and the feed server is on port 8000.
    * Anywhere else the feed server serves the page too (/app/), so the feed is on the same address. */
-  const BASE = location.port === '8765' ? 'http://localhost:8000' : location.origin;
+  const PRESENTER = location.port === '8765';   // only the demo machine's page sets the server's key and floor plan
+  const BASE = PRESENTER ? 'http://localhost:8000' : location.origin;
   const RETRY_MS = 3000;
   let socket = null;
 
   /* Give the server the API key and the floor plan (room names + rectangles, for the phone's room picker).
    * Local only: the server refuses this from other machines. */
   async function configure(key, layout) {
+    if (!PRESENTER) return null;
     const plan = { width: layout.width, height: layout.height,
       rooms: layout.rooms.map(r => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) };
     const res = await fetch(BASE + '/twin', {

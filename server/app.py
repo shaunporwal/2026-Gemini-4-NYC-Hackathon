@@ -282,7 +282,7 @@ async def post_twin(request: Request):
     if not is_local(request):
         return JSONResponse({"error": "local requests only"}, status_code=403)
     body = await request.json()
-    if isinstance(body.get("key"), str):
+    if isinstance(body.get("key"), str) and body["key"].strip():   # an empty key never clears a working one
         P.set_key(body["key"])
     p = body.get("plan")
     if isinstance(p, dict) and isinstance(p.get("rooms"), list):
