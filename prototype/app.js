@@ -65,7 +65,7 @@
   /* Tell the feed server the key and the rooms. Quiet if the server is off: the twin works without it. */
   function syncFeed() {
     if (!state.layout) return;
-    FEED.configure(cfg().key, state.layout.rooms.map(r => r.name)).catch(() => {});
+    FEED.configure(cfg().key, state.layout).catch(() => {});
   }
 
   function showLive() {

@@ -6,10 +6,13 @@
   const HOST = 'localhost:8000', RETRY_MS = 3000;
   let socket = null;
 
-  /* Give the server the API key and the room names. Local only: the server refuses this from other machines. */
-  async function configure(key, rooms) {
+  /* Give the server the API key and the floor plan (room names + rectangles, for the phone's room picker).
+   * Local only: the server refuses this from other machines. */
+  async function configure(key, layout) {
+    const plan = { width: layout.width, height: layout.height,
+      rooms: layout.rooms.map(r => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) };
     const res = await fetch('http://' + HOST + '/twin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, rooms })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, plan })
     });
     if (!res.ok) throw new Error('feed server ' + res.status);
     return res.json();

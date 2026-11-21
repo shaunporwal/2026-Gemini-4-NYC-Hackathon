@@ -51,6 +51,7 @@ workers: dict[str, asyncio.Task] = {}
 observations: dict[str, dict] = {}  # latest Observation per cameraId
 clients: set[WebSocket] = set()
 rooms: list[str] = []  # room names of the twin on screen (prototype/). A room name also works as a camera id.
+plan: dict = {}  # floor plan of that twin for the phone's room picker: {width, height, rooms: [{name, x, y, w, h}]}
 
 
 def ensure_cam(cam_id: str):
@@ -272,8 +273,14 @@ async def post_twin(request: Request):
     body = await request.json()
     if isinstance(body.get("key"), str):
         P.set_key(body["key"])
-    if isinstance(body.get("rooms"), list):
-        rooms[:] = [str(r)[:60] for r in body["rooms"][:200]]
+    p = body.get("plan")
+    if isinstance(p, dict) and isinstance(p.get("rooms"), list):
+        num = lambda v: float(v) if isinstance(v, (int, float)) else 0.0
+        plan.clear()
+        plan.update(width=num(p.get("width")), height=num(p.get("height")), rooms=[
+            {"name": str(r.get("name"))[:60], **{k: num(r.get(k)) for k in ("x", "y", "w", "h")}}
+            for r in p["rooms"][:200] if isinstance(r, dict)])
+        rooms[:] = [r["name"] for r in plan["rooms"]]
     return {"ready": P.has_key(), "rooms": len(rooms)}
 
 
@@ -316,6 +323,6 @@ async def camera_page():
 
 @app.get("/")
 async def index():
-    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms,
+    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms, "plan": plan,
             "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
             "ws": "/ws", "observations": "/observations"}
