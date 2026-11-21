@@ -121,9 +121,10 @@ export interface Agent {
  * Owned by the feed/server teammate. Wire format and producer: server/README.md.
  */
 export interface Observation {
-  cameraId: string; // a CameraDef.id from the map
+  cameraId: string; // a CameraDef.id from the map, or a room id (slug of the room name) in room mode
+  room?: string; // room mode: the room name in the prototype layout this phone is in
   timestamp: number; // ms epoch, when the frame arrived
-  peopleCount: number; // people seen (Hydrogen); 0 when Decisions says nobody is there
+  peopleCount: number; // Decisions' fast estimate within ~1 s of a change, then Hydrogen's exact count
   density?: "empty" | "sparse" | "moderate" | "crowded" | "packed"; // Decisions, every frame
   events?: string[]; // any of "fire", "smoke", "exit_blocked", "alarm", "screaming"
   summary?: string; // one-line scene description (Hydrogen); never identifies people
@@ -135,8 +136,8 @@ export interface Observation {
   people?: { x: number; y: number }[];
   /** Fire or smoke seen on this camera (debounced over consecutive frames). */
   hazards?: { type: "fire" | "smoke"; confidence: number }[];
-  /** Each exit this camera sees: its cells (flat indices) and whether it looks blocked. */
-  exits?: { cells: number[]; blocked: boolean; p: number }[];
+  /** Each exit this camera sees: its cells (flat indices) and whether it looks blocked. Room mode adds the exit id. */
+  exits?: { id?: string; cells: number[]; blocked: boolean; p: number }[];
   /** Health of the camera stream, for the UI. */
   stream?: {
     ok: boolean;

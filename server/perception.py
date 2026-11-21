@@ -51,6 +51,11 @@ CONTEXT = "A frame from a fixed camera in an indoor event venue (a hackathon hal
 # Observation.density names, same order as CROWDING_LEVELS (score 0..4)
 DENSITY = ["empty", "sparse", "moderate", "crowded", "packed"]
 
+# Fast people-count ranges from the Decisions API (every frame). Hydrogen gives the exact count.
+COUNT_BUCKETS = {"0": (0, 0), "1": (1, 1), "2": (2, 2), "3": (3, 3), "4-5": (4, 5), "6-9": (6, 9), "10+": (10, 999)}
+NOT_REAL = ("Do not count people shown on screens, posters or photos, or seen in reflections. "
+            "Do not count empty chairs, coats or bags on chairs, or monitors.")
+
 CROWDING_LEVELS = [
     "Empty floor",
     "A few people, lots of open space",
@@ -68,6 +73,15 @@ def build_questions(has_exit: bool) -> dict:
             "criteria": {
                 "true_description": "At least one person is visible, even partly",
                 "false_description": "No people are visible",
+            },
+        },
+        "people_count": {
+            "type": "choice",
+            "instructions": "How many real people are physically present in this frame? Count people who are "
+                            "partly hidden or far away. " + NOT_REAL,
+            "criteria": {
+                "0": "No people", "1": "Exactly one person", "2": "Exactly two people", "3": "Exactly three people",
+                "4-5": "Four or five people", "6-9": "Six to nine people", "10+": "Ten or more people",
             },
         },
         "crowding": {
@@ -121,6 +135,8 @@ def run_decisions(jpeg: bytes, questions: dict) -> dict:
         "crowding": float(a["crowding"].score),  # probability-weighted 0..4
         "hazard": a["hazard"].choice,
         "hazard_conf": float(a["hazard"].confidence),
+        "count_bucket": a["people_count"].choice,
+        "count_conf": float(a["people_count"].confidence),
         "ms": round((time.time() - t0) * 1000),
     }
     if "exit_blocked" in questions:
@@ -140,8 +156,8 @@ class Positions(BaseModel):
 
 
 POSITIONS_PROMPT = (
-    "Count every person visible in this camera frame, including people who are partly hidden "
-    "or far away. For each person give the point where their feet touch the floor (estimate it "
+    "Count every real person physically present in this camera frame, including people who are partly hidden "
+    "or far away. " + NOT_REAL + " For each person give the point where their feet touch the floor (estimate it "
     "if their feet are hidden) as fractions of the image: x from 0 (left) to 1 (right), "
     "y from 0 (top) to 1 (bottom). count must equal the number of entries in people. "
     "summary: one short sentence on what the crowd is doing (for example queueing at the bar, "
