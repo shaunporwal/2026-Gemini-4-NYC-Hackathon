@@ -4,6 +4,8 @@
   const F = window.FireSim, G = window.Gemini, LAYOUTS = window.FireLayouts;
   const $ = id => document.getElementById(id);
   const SEED = 7;
+  const KEY_STORE = 'fireTwinGeminiKey';
+  const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
   const STATS = [['out', 'Out'], ['trapped', 'No route'], ['down', 'Down'], ['seconds', 'Time (s)']];
 
   const state = { layout: null, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
@@ -206,6 +208,14 @@
     on('walk', 'change', fromGemini('Video update', (files, status) => G.updateFromVideo(cfg(), files[0], state.layout, status)));
     window.addEventListener('resize', () => view.fit(state.sim));
     Object.keys(LAYOUTS).forEach(k => { const o = el('option', LAYOUTS[k].name); o.value = k; $('preset').append(o); });
+    /* The key survives a reload of this tab (sessionStorage). It is never written to a file. */
+    const keyChanged = () => {
+      sessionStorage.setItem(KEY_STORE, cfg().key);
+      $('keyState').textContent = cfg().key ? KEY_SAVED : KEY_MISSING;
+    };
+    $('key').value = sessionStorage.getItem(KEY_STORE) || '';
+    on('key', 'input', keyChanged);
+    keyChanged();
     setView('2d');
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
     requestAnimationFrame(frame);
