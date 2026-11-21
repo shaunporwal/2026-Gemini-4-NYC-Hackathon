@@ -11,6 +11,15 @@
    * than bare floor. Chairs and plants are drawn but people walk past them. */
   const BLOCKING = { table: 1, desk: 1, sofa: 1, counter: 1, bar: 1, stage: 1, shelf: 1, screen: 1 };
   const FURNITURE_FUEL = 2;      // fire spreads onto a furniture cell this many times faster
+  const VIEW_HALF = 0.5;         // half of a phone's field of view, in radians (same as the cone that is drawn)
+  /* Is cell (x, y) inside the view of a phone at v = {x, y, yaw}? Yaw 0 = north (-y), 90 = east (+x). */
+  function inView(v, x, y) {
+    const dx = x + 0.5 - v.x, dy = y + 0.5 - v.y;
+    if (!dx && !dy) return false;
+    let d = Math.atan2(dx, -dy) - v.yaw * Math.PI / 180;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return Math.abs(d) <= VIEW_HALF;
+  }
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
   function mulberry32(seed) {
@@ -187,8 +196,10 @@
         for (let i = cells.length - 1; i > 0; i--) {
           const j = Math.floor(randPlace() * (i + 1)), t = cells[i]; cells[i] = cells[j]; cells[j] = t;
         }
-        for (let k = 0, n = Math.min(r.people || 0, cells.length); k < n; k++) {
-          spawn(cells[k]);
+        /* A phone counted these people in what it sees: put them in its field of view first (r.view = its pose). */
+        const v = r.view, order = v ? cells.filter(i => inView(v, i % W, (i / W) | 0)).concat(cells.filter(i => !inView(v, i % W, (i / W) | 0))) : cells;
+        for (let k = 0, n = Math.min(r.people || 0, order.length); k < n; k++) {
+          spawn(order[k]);
         }
       });
 
