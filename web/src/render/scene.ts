@@ -23,6 +23,8 @@ export class VoxelScene {
   private readonly raycaster = new THREE.Raycaster();
   private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private bodies!: THREE.InstancedMesh;
+  private flames: THREE.InstancedMesh;
+  private haze: THREE.InstancedMesh;
   private heads!: THREE.InstancedMesh;
 
   constructor(private readonly container: HTMLElement, private readonly map: MapModel, maxPeople = 5000) {
@@ -45,6 +47,10 @@ export class VoxelScene {
 
     this.buildCells();
     this.buildPeople(Math.max(maxPeople, map.people.length));
+    this.flames = this.instanced(0xff640e, map.cells.length, { emissive: 0xce3400 });
+    this.haze = this.instanced(0xc4cbd0, map.cells.length, { transparent: true, opacity: 0.37, depthWrite: false });
+    for (const mesh of [this.flames, this.haze, this.bodies, this.heads]) mesh.frustumCulled = false;
+    this.flames.count = this.haze.count = 0;
     this.buildCameras();
     this.setPeople(map.people);
 
@@ -78,6 +84,22 @@ export class VoxelScene {
     }
     this.bodies.count = this.heads.count = n;
     this.bodies.instanceMatrix.needsUpdate = this.heads.instanceMatrix.needsUpdate = true;
+  }
+
+  setHazards(fire: Uint16Array, smoke: Float32Array) {
+    const size = this.map.cellSize;
+    this.flames.count = this.haze.count = 0;
+    for (let i = 0; i < fire.length; i++) {
+      if (!fire[i] && smoke[i] < 0.025) continue;
+      const mesh = fire[i] ? this.flames : this.haze;
+      const height = fire[i] ? 0.9 : 0.12 + 0.65 * smoke[i];
+      const x = (i % this.map.width + 0.5) * size;
+      const z = (Math.floor(i / this.map.width) + 0.5) * size;
+      const base = SPEC_BY_CODE[this.map.cells[i]].height ?? 0;
+      this.tmp.makeScale(size * 0.94, height, size * 0.94).setPosition(x, base + FLOOR_T + height / 2, z);
+      mesh.setMatrixAt(mesh.count++, this.tmp);
+    }
+    this.flames.instanceMatrix.needsUpdate = this.haze.instanceMatrix.needsUpdate = true;
   }
 
   draw() {

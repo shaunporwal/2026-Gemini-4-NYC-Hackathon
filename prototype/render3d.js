@@ -9,7 +9,7 @@
   const TILT = 55 * Math.PI / 180;   // start angle of the camera above the floor
   const COLOR = {
     sky: 0x0e1116, floor: 0x3a4150, wall: 0xb8bcc6, door: 0x4a7bd1, exit: 0x2ecc71, locked: 0xd0342c,
-    route: 0x5ad1ff, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
+    route: 0x5ad1ff, queued: 0xb6ef69, trapped: 0xff4fd8, down: 0x8a2626, head: 0xf2b880, smoke: 0xb4b4be, object: 0x8b5a2b
   };
   const PERSON = { bodyH: 1.1, bodyW: 0.42, head: 0.34 };
   /* Furniture from layout.objects: [height in m, share of the cell that the voxel fills]. */
@@ -17,7 +17,6 @@
     table: [0.75, 0.96], desk: [0.75, 0.96], chair: [0.45, 0.6], sofa: [0.55, 0.92], counter: [1.0, 1], bar: [1.1, 1],
     stage: [0.4, 1], shelf: [1.8, 0.9], plant: [1.2, 0.5], screen: [1.8, 0.9]
   };
-  const OBJECT_MAX = 120, OBJECT_CELLS_MAX = 4000;
   const HEX = /^#[0-9a-f]{6}$/i;
   const hex = (v, d) => (typeof v === 'string' && HEX.test(v) ? parseInt(v.slice(1), 16) : d);
   /* Small fixed shade per cell, so flat areas read as blocks. */
@@ -43,6 +42,13 @@
     let down = null;
     canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });
 
+    const outline = new T.LineLoop(new T.BufferGeometry().setFromPoints([
+      new T.Vector3(0, 0, 0), new T.Vector3(1, 0, 0), new T.Vector3(1, 0, 1), new T.Vector3(0, 0, 1)
+    ]), new T.LineBasicMaterial({ color: COLOR.queued, depthTest: false }));
+    outline.renderOrder = 1;
+    outline.visible = false;
+    scene.add(outline);
+
     function instanced(count, opts) {
       const mesh = new T.InstancedMesh(box, new T.MeshLambertMaterial(Object.assign({ color: 0xffffff }, opts)), Math.max(1, count));
       mesh.count = 0;
@@ -64,20 +70,6 @@
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
 
-    function objectCells(sim) {
-      const out = [], list = Array.isArray(sim.L.objects) ? sim.L.objects.slice(0, OBJECT_MAX) : [];
-      for (const o of list) {
-        if (!o || typeof o !== 'object') continue;
-        const spec = OBJECT[o.type] || OBJECT.table, color = hex(o.color, COLOR.object);
-        const x0 = Math.round(+o.x), y0 = Math.round(+o.y), w = Math.max(1, Math.round(+o.w) || 1), h = Math.max(1, Math.round(+o.h) || 1);
-        for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
-          if (!(x >= 0 && y >= 0 && x < sim.W && y < sim.H) || sim.type[y * sim.W + x] !== F.FLOOR) continue;
-          if (out.length < OBJECT_CELLS_MAX) out.push({ x, y, spec, color });
-        }
-      }
-      return out;
-    }
-
     function build(sim) {
       if (group) { scene.remove(group); group.traverse(o => { if (o.isInstancedMesh) { o.material.dispose(); o.dispose(); } }); }
       group = new T.Group();
@@ -93,9 +85,12 @@
       }
       done(floors, nf); done(walls, nw);
 
-      const cells = objectCells(sim), objects = instanced(cells.length);
-      cells.forEach((c, k) => put(objects, k, c.x, c.y, FLOOR_T, c.spec[0], c.spec[1], c.spec[1], c.color, shade(c.x, c.y)));
-      done(objects, cells.length);
+      const objects = instanced(sim.furniture.length);
+      sim.furniture.forEach(({ x, y, object }, k) => {
+        const spec = OBJECT[object.type] || OBJECT.table;
+        put(objects, k, x, y, FLOOR_T, spec[0], spec[1], spec[1], hex(object.color, COLOR.object), shade(x, y));
+      });
+      done(objects, sim.furniture.length);
 
       openings = instanced(sim.openings.reduce((n, o) => n + o.cells.length, 0));
       fire = instanced(N, { emissive: 0xff5a00, emissiveIntensity: 0.6 });
@@ -137,7 +132,7 @@
       return x < 0 || y < 0 || x >= sim.W || y >= sim.H ? null : { x, y, i: y * sim.W + x };
     }
 
-    function draw(sim, t) {
+    function draw(sim, t, trackedOpening) {
       if (built !== sim) fit(sim);
       const { W, N } = sim;
       let n = 0;
@@ -147,6 +142,13 @@
         else put(openings, n++, x, y, 0, FLOOR_T + 0.04, 1, 1, o.kind === 'exit' ? COLOR.exit : COLOR.door);
       }
       done(openings, n);
+      const tracked = sim.openings[trackedOpening];
+      outline.visible = !!tracked;
+      if (tracked) {
+        const o = tracked.ref;
+        outline.position.set(o.x - 0.1, FLOOR_T + 0.05, o.y - 0.1);
+        outline.scale.set(o.w + 0.2, 1, o.h + 0.2);
+      }
 
       let nf = 0, ns = 0;
       for (let i = 0; i < N; i++) {
@@ -165,7 +167,7 @@
       for (const p of sim.people) {
         if (p.state === F.OUT) continue;
         const x = p.i % W, y = (p.i / W) | 0, isDown = p.state === F.DOWN;
-        const color = isDown ? COLOR.down : sim.trapped(p) ? COLOR.trapped : COLOR.route;
+        const color = isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : COLOR.route;
         if (isDown) {   // lying on the floor
           put(bodies, np, x, y, FLOOR_T, PERSON.bodyW, PERSON.bodyH * 0.8, PERSON.bodyW, color);
           put(heads, np++, x, y, FLOOR_T, 0.01, 0.01, 0.01, COLOR.head);

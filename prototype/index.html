@@ -25,6 +25,26 @@
 <div id="stats"></div>
 
 <aside>
+  <section id="doorQueues" aria-labelledby="queueTitle">
+    <div class="queueHead">
+      <h2 id="queueTitle">Doorway queues</h2>
+      <select id="queueOpening" aria-label="Opening to monitor"></select>
+    </div>
+    <div class="queueCaption"><strong id="queueName"></strong><span class="queueKey">Queued in 3D</span></div>
+    <dl class="queueMetrics">
+      <div><dt>Waiting now</dt><dd id="qWaiting">0</dd></div>
+      <div><dt>Peak queue</dt><dd id="qPeak">0</dd></div>
+      <div><dt>People affected</dt><dd id="qPeople">0</dd></div>
+      <div><dt>Total wait</dt><dd id="qWait">0 person-s</dd></div>
+      <div><dt>Longest wait</dt><dd id="qLongest">0 s</dd></div>
+      <div><dt>Smoke exposure</dt><dd id="qSmoke">0 smoke-s</dd></div>
+    </dl>
+    <details><summary>Measurement details</summary>
+      <p id="queueMeans"></p>
+      <p>Total wait sums time across people. Longest wait is one uninterrupted wait. Smoke-seconds sum local smoke level (0–1) × waiting seconds across people.</p>
+      <p>The outline in 3D marks the monitored opening.</p>
+    </details>
+  </section>
   <table id="seenTable" hidden>
     <thead><tr><th>Gemini saw</th></tr></thead>
     <tbody id="seen"></tbody>

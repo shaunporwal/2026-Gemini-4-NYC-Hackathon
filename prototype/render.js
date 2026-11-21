@@ -32,6 +32,9 @@
       for (let i = 0; i < N; i++) {
         const x = (i % W) * cs, y = ((i / W) | 0) * cs;
         ctx.fillStyle = sim.covered[i] ? CELL[sim.type[i]] : OUTSIDE; ctx.fillRect(x, y, cs, cs);
+        if (sim.type[i] === F.FLOOR && sim.walkable && !sim.walkable[i]) {
+          ctx.fillStyle = '#805f44'; ctx.fillRect(x, y, cs, cs);
+        }
         if (sim.fire[i]) {
           const f = 0.5 + 0.5 * Math.sin(t / 90 + i * 1.7);
           ctx.fillStyle = 'rgb(255,' + Math.round(70 + 140 * f) + ',' + Math.round(20 + 40 * f) + ')';

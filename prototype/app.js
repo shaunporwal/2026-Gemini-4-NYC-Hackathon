@@ -43,12 +43,60 @@
     if (note) { const td = el('td', note, 'note'); td.colSpan = 4; const r = el('tr'); r.append(td); tbody.append(r); }
   }
 
+  let queueLayout, queueTick = -1, trackedOpening = -1;
+
+  function buildQueueMenu(sim) {
+    const menu = $('queueOpening');
+    const selection = queueLayout === state.layout ? menu.value : '';
+    const automatic = el('option', 'Follow busiest'); automatic.value = '';
+    menu.replaceChildren(automatic);
+    sim.openings.forEach((o, index) => {
+      const name = (o.kind === 'exit' ? 'Exit ' : 'Door ') + o.ref.id;
+      const opt = el('option', o.ref.name ? name + ' · ' + o.ref.name : name);
+      opt.value = String(index);
+      menu.append(opt);
+    });
+    menu.value = selection;
+    queueLayout = state.layout;
+    queueTick = -1;
+  }
+
+  function smokeValue(value) {
+    if (value > 0 && value < 0.01) return '<0.01';
+    return String(Number(value.toFixed(2)));
+  }
+
+  function updateQueues(sim) {
+    queueTick = sim.tick;
+    const rows = sim.queueStats(), selection = $('queueOpening').value;
+    trackedOpening = selection === '' ? -1 : Number(selection);
+    if (trackedOpening < 0) {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i], best = rows[trackedOpening];
+        if (!r.people) continue;
+        if (!best || r.waiting > best.waiting || (r.waiting === best.waiting && r.waitSeconds > best.waitSeconds)) trackedOpening = i;
+      }
+    }
+    const row = rows[trackedOpening];
+    $('queueName').textContent = row ? (row.kind === 'exit' ? 'Exit ' : 'Door ') + row.id : 'No queues recorded';
+    $('qWaiting').textContent = row?.waiting ?? 0;
+    $('qPeak').textContent = row?.peak ?? 0;
+    $('qPeople').textContent = row?.people ?? 0;
+    $('qWait').textContent = (row?.waitSeconds ?? 0) + ' person-s';
+    $('qLongest').textContent = (row?.maxWaitSeconds ?? 0) + ' s';
+    $('qSmoke').textContent = smokeValue(row?.smokeSeconds ?? 0) + ' smoke-s';
+    $('queueMeans').textContent = row?.people
+      ? 'Each affected person averaged ' + (row.waitSeconds / row.people).toFixed(1) + ' s of waiting and ' + smokeValue(row.smokeSeconds / row.people) + ' smoke-s.'
+      : 'A person counts once per opening when their next step is blocked by another person in its queue.';
+  }
+
   /* New sim on the current layout. With ignitions: replay that fire. */
   function reset(ignitions) {
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions }));
     state.running = !!(ignitions && ignitions.length);
     state.annKey = ''; state.acc = 0;
     view.fit(state.sim);
+    buildQueueMenu(state.sim);
     showLabel();
   }
 
@@ -171,7 +219,8 @@
       checkAnnounce();
       if (sim.done) onDone();
     }
-    view.draw(sim, t);
+    if (queueTick !== sim.tick) updateQueues(sim);
+    view.draw(sim, t, trackedOpening);
     const s = sim.stats();
     STATS.forEach(([k]) => { $('stat-' + k).textContent = s[k]; });
     requestAnimationFrame(frame);
@@ -187,6 +236,7 @@
     const on = (id, type, fn) => $(id).addEventListener(type, fn);
     const guarded = (what, fn) => async ev => { try { await fn(ev); } catch (e) { log(what + ': ' + e.message); } };
     Object.values(VIEWS).forEach(v => on(v.canvas, 'click', onCanvasClick));
+    on('queueOpening', 'change', () => updateQueues(state.sim));
     on('dim', 'click', guarded('3D view', () => setView($('dim').dataset.next)));
     on('setup', 'click', () => $('setupDlg').showModal());
     on('pause', 'click', () => { state.running = !state.running && state.sim.alarmTick >= 0 && !state.sim.done; });
