@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "name": "Small Cafe",
+  "dimensions": {"width": 9, "height": 6, "cellSize": 0.5, "wallHeight": 2.8},
+  "rows": [
+    "####E####",
+    "#.P....P#",
+    "#.CTTC..#",
+    "#.CTTC.P#",
+    "#....P..#",
+    "####E####"
+  ],
+  "cameras": [
+    {"id": "cam-cafe", "name": "Cafe corner", "position": {"x": 7.5, "y": 1.5, "z": 2.5}, "orientation": {"yaw": 225, "pitch": -30}, "lens": {"fov": 100, "range": 12}}
+  ]
+}

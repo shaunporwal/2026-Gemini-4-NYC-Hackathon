@@ -27,7 +27,7 @@
 |---|---|---|---|
 | `shared/` | Types, constants, small pure helpers (index math, yaw→vector) | — | — |
 | `map/` | Load + validate map JSON → `MapModel`; object catalog; camera visible-cell computation; export edited map back to JSON | map JSON | `MapModel`, `CameraState.visibleCells` |
-| `render/` | three.js scene: voxel walls/floor/objects (InstancedMesh), fire/smoke overlays, agents, camera gizmos, raycast picking | `MapModel`, `SimState` | nothing in sim (emits UI events) |
+| `render/` | three.js scene: voxel cells from the cell-type registry (InstancedMesh), people, fire/smoke overlays, agents, camera gizmos, raycast picking | `MapModel`, `SimState` | nothing in sim (emits UI events) |
 | `fire/` | Fire + smoke spread model (TBD by owner) | `MapModel`, layers | `fire`, `smoke`, `heat`, `fuel` layers |
 | `crowd/` | Agents, exit distance field, movement, casualties | `MapModel`, layers, observations | `agents` |
 | `feed/` | WebSocket client; turns `Observation`s into agent spawn/adjust requests | server | `observations` |
@@ -39,8 +39,8 @@
 ## Static vs. dynamic state
 
 - **`MapModel` (static, built once per map load):** `width`, `height`, `cellSize`,
-  `cells: Uint8Array` (CellType enum), `walkable: Uint8Array` (after objects are applied),
-  `objects`, `zones`, `cameras`, plus `zoneOf: Int16Array` (cell → zone index or −1).
+  `cells: Uint8Array` (CellType code), `walkable`, `opaque`, `baseFuel`, `zoneOf: Int16Array`
+  (cell → zone index or −1), `exitCells`, `people` (spawn points from `P`), `zones`, `cameras`.
 - **`SimState` (mutates every tick):** typed-array layers of length `width*height`
   (`fire`, `smoke`, `heat`, `fuel`), `agents[]`, `time`, `observations`, `events`.
 

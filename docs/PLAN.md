@@ -5,7 +5,8 @@ Each module has **one owner**. Others may read it and open small PRs, but the ow
 
 | Area | Folder(s) | Owner |
 |---|---|---|
-| Map architecture: schema, loader, cameras + visible cells, voxel render | `web/src/map`, `web/src/render`, `schemas/`, `web/public/maps` | Jacob |
+| Map architecture: schema, cell registry, loader, cameras + visible cells | `web/src/map`, `schemas/`, `web/public/maps` | Jacob |
+| three.js voxel renderer | `web/src/render` | _three.js teammate_ |
 | Fire + smoke model | `web/src/fire` | _TBD_ |
 | Crowd agents + stats | `web/src/crowd`, `web/src/stats` | _TBD_ |
 | Gemini live-feed backend + client | `server/`, `web/src/feed` | _TBD_ |

@@ -32,7 +32,7 @@ door B."
 ## Scope for this hackathon (6 h, 4 people)
 **In**
 - JSON-defined map of any size (single floor), voxel 3D render (three.js)
-- Cell types: wall, floor, door, exit (+ void) and furniture/obstacle objects
+- Everything physical in the grid: wall, floor, exit, table, chair, person (+ door, void)
 - Camera objects with orientation, visible-cell cone (walls occlude), draggable/rotatable in 3D
 - Grid fire + smoke spread (model details owned by the fire teammate — TBD)
 - Individual crowd agents following a distance field to exits
