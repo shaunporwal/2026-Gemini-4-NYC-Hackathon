@@ -25,6 +25,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 import perception as P
 from geometry import MapInfo, jpeg_aspect
@@ -358,3 +359,8 @@ async def index():
             "phoneUrl": phone_url(),
             "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
             "ws": "/ws", "observations": "/observations"}
+
+
+# The twin page itself (prototype/), for people who are not at the demo machine: <address>/app/
+# A remote viewer has no API key, so the Gemini steps in the page are off; the live feed still shows.
+app.mount("/app", StaticFiles(directory=HERE.parent / "prototype", html=True), name="twin")
