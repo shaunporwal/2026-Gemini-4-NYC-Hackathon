@@ -3,7 +3,7 @@
 Implementation is merged. This document records the original PR scope and checks. For the current UI including queues and awareness replay, use [the demo guide](../../prototype/README.md).
 
 
-Status: in progress
+Status: done
 
 Branch: `shaun/video-to-twin`
 
