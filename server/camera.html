@@ -165,8 +165,8 @@
 <canvas id="c" hidden></canvas>
 <script>
 const q = new URLSearchParams(location.search);
-const intervalMs = +(q.get('ms') || 1000);   // send a frame every N ms
-const width = +(q.get('w') || 800);          // downscale before upload: the long side of the frame, landscape or portrait
+const intervalMs = +(q.get('ms') || 250);    // send a frame every N ms (about 4 each second)
+const width = +(q.get('w') || 640);          // downscale before upload: the long side of the frame, landscape or portrait
 const clipS = +(q.get('clip') || 2);         // audio clip length in seconds
 const $ = id => document.getElementById(id);
 const v = $('v'), c = $('c'), ctx = c.getContext('2d');

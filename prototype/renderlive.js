@@ -3,7 +3,7 @@
  * Below the pictures: the frames the server saved (tap one to look at it again), and how a phone joins. */
 (function () {
   'use strict';
-  const REFRESH_MS = 1000;     // a phone sends about 1 frame each second
+  const REFRESH_MS = 250;      // a phone sends about 4 frames each second
   const INFO_MS = 5000;        // how often to ask the server for the phone link and the saved frames
   const STALE_S = 5;           // no frame for this long = the phone stopped
   const SHOW_SAVED = false;    // the demo is live feed only: no strip of saved frames, no build from saved frames
