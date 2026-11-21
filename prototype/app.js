@@ -19,7 +19,8 @@
     '3d': { canvas: 'cv3d', make: window.FireRender3D },
     'live': { canvas: 'liveView', make: { create: (node, wrap) => window.FireRenderLive.create(node, wrap,
       { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info,
-        captures: FEED.captures, captureUrl: FEED.captureUrl }) } }
+        captures: FEED.captures, captureUrl: FEED.captureUrl,
+        rebuild: (room, urls) => rebuildRoom(room, urls), busy: () => detail.busy }) } }
   };
   let view = null;
   const simOpts = () => ({ seed: SEED, fireRate: +$('rate').value });
@@ -94,24 +95,31 @@
    * and the result goes into the layout, so the sim itself changes: people walk around the furniture and it burns.
    * Presenter only (the key is here), before the fire only, one room at a time, each room at most every DETAIL_S. */
   const detail = { busy: false, at: new Map() };
-  async function rebuildRoom(roomName) {
-    if (!FEED.presenter || !cfg().key || detail.busy || state.sim.alarmTick >= 0) return;
-    if (performance.now() - (detail.at.get(roomName) || -Infinity) < DETAIL_S * 1000) return;
+  /* urls = saved frames a person chose (the frames of a video). Without urls: the newest live frame, on a timer. */
+  async function rebuildRoom(roomName, urls) {
+    const asked = !!urls, no = why => { if (asked) log('Rebuild ' + roomName + ': ' + why); };
+    if (!state.layout.rooms.some(r => r.name === roomName)) return no('this room is not in the layout on screen.');
+    if (!FEED.presenter || !cfg().key) return no('Gemini reads frames on the presenter\'s laptop only.');
+    if (detail.busy) return no('Gemini is reading another room. Try again in a few seconds.');
+    if (state.sim.alarmTick >= 0) return no('press Reset first. The layout does not change during a fire.');
+    if (!asked && performance.now() - (detail.at.get(roomName) || -Infinity) < DETAIL_S * 1000) return;
     detail.busy = true; detail.at.set(roomName, performance.now());
     try {
-      const blob = await (await fetch(FEED.frameUrl(roomName))).blob();
-      const obs = await G.observeRoom(cfg(), new File([blob], roomName + '.jpg', { type: 'image/jpeg' }), state.layout, roomName);
+      urls = urls || [FEED.frameUrl(roomName)];
+      if (asked) log('Gemini: reading ' + urls.length + ' frame' + (urls.length > 1 ? 's' : '') + ' of ' + roomName + '…');
+      const files = await Promise.all(urls.map(async (u, k) => new File([await (await fetch(u)).blob()], roomName + '-' + k + '.jpg', { type: 'image/jpeg' })));
+      const obs = await G.observeRoom(cfg(), files, state.layout, roomName);
       const res = F.applyObservation(state.layout, obs);
       if (!res || state.sim.alarmTick >= 0) return;            // the fire started while Gemini was reading: keep the layout
       const live1 = live.get(roomName), room = res.layout.rooms.find(r => r.name === roomName);
-      if (live1) room.people = live1.peopleCount;              // the feed's count is newer than this frame's
+      if (live1 && !asked) room.people = live1.peopleCount;    // the feed's count is newer than this frame's
       state.layout = res.layout;
       $('json').value = JSON.stringify(state.layout);
       showSeen(G.notesOf(state.layout));
       syncFeed();
       reset();
       const n = (state.layout.objects || []).filter(o => o.x >= room.x && o.x < room.x + room.w && o.y >= room.y && o.y < room.y + room.h).length;
-      log('Gemini rebuilt ' + roomName + ' from the camera: ' + n + ' furniture items.' + (state.sim.furnitureDropped ? ' They blocked the way out, so the sim does not use them.' : ''));
+      log('Gemini rebuilt ' + roomName + ' from ' + (asked ? urls.length + ' saved frame' + (urls.length > 1 ? 's' : '') : 'the camera') + ': ' + room.people + ' people, ' + n + ' furniture items.' + (state.sim.furnitureDropped ? ' They blocked the way out, so the sim does not use them.' : ''));
     } catch (e) { log('Room read: ' + e.message); } finally { detail.busy = false; }
   }
 
