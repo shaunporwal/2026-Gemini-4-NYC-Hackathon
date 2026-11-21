@@ -5,6 +5,8 @@
   const $ = id => document.getElementById(id);
   const SEED = 7;
   const KEY_STORE = 'fireTwinGeminiKey';
+  const PA_IDLE = 'Click the floor to start a fire. Click a door or exit to lock or unlock it.';
+  const DETAIL_S = 30;   // a room is rebuilt from its camera at most this often
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
@@ -53,6 +55,7 @@
     state.sim = new F.Sim(state.layout, Object.assign(simOpts(), { ignitions }));
     state.running = !!(ignitions && ignitions.length);
     state.annKey = ''; state.acc = 0;
+    if (!state.running) $('pa').textContent = PA_IDLE;   // a fresh sim: clear the last run's announcement (no speech)
     view.fit(state.sim);
     showLabel();
   }
@@ -87,6 +90,31 @@
     $('live').replaceChildren(...rows);
   }
 
+  /* A camera frame rebuilds its room: Gemini reads the newest frame (furniture, colors, blocked doors, notes)
+   * and the result goes into the layout, so the sim itself changes: people walk around the furniture and it burns.
+   * Presenter only (the key is here), before the fire only, one room at a time, each room at most every DETAIL_S. */
+  const detail = { busy: false, at: new Map() };
+  async function rebuildRoom(roomName) {
+    if (!FEED.presenter || !cfg().key || detail.busy || state.sim.alarmTick >= 0) return;
+    if (performance.now() - (detail.at.get(roomName) || -Infinity) < DETAIL_S * 1000) return;
+    detail.busy = true; detail.at.set(roomName, performance.now());
+    try {
+      const blob = await (await fetch(FEED.frameUrl(roomName))).blob();
+      const obs = await G.observeRoom(cfg(), new File([blob], roomName + '.jpg', { type: 'image/jpeg' }), state.layout, roomName);
+      const res = F.applyObservation(state.layout, obs);
+      if (!res || state.sim.alarmTick >= 0) return;            // the fire started while Gemini was reading: keep the layout
+      const live1 = live.get(roomName), room = res.layout.rooms.find(r => r.name === roomName);
+      if (live1) room.people = live1.peopleCount;              // the feed's count is newer than this frame's
+      state.layout = res.layout;
+      $('json').value = JSON.stringify(state.layout);
+      showSeen(G.notesOf(state.layout));
+      syncFeed();
+      reset();
+      const n = (state.layout.objects || []).filter(o => o.x >= room.x && o.x < room.x + room.w && o.y >= room.y && o.y < room.y + room.h).length;
+      log('Gemini rebuilt ' + roomName + ' from the camera: ' + n + ' furniture items.' + (state.sim.furnitureDropped ? ' They blocked the way out, so the sim does not use them.' : ''));
+    } catch (e) { log('Room read: ' + e.message); } finally { detail.busy = false; }
+  }
+
   /* One camera update. Before the fire: its head count goes into the twin. A camera that sees fire starts the fire. */
   function onObservation(o) {
     const room = state.layout.rooms.find(r => r.name === o.cameraId);
@@ -102,12 +130,24 @@
       $('json').value = JSON.stringify(state.layout);
       reset();
     }
-    if (idle && $('autofire').checked && o.events.includes('fire')) {
-      if (state.sim.ignite(Math.floor(room.x + room.w / 2), Math.floor(room.y + room.h / 2))) {
-        state.running = true;
-        log('Camera in ' + room.name + ' sees fire. Fire started there.');
-      }
+    const cause = o.events.includes('fire') ? 'Camera in ' + room.name + ' sees fire.'
+      : o.events.includes('alarm') ? 'Microphone in ' + room.name + ' hears an alarm.'
+      : o.events.includes('screaming') ? 'Microphone in ' + room.name + ' hears screaming.' : '';
+    if (idle && $('autofire').checked && cause) {
+      const spot = fireSpot(room);
+      if (spot && state.sim.ignite(spot.x, spot.y)) { state.running = true; log(cause + ' Fire started there.'); }
+    } else if (idle) rebuildRoom(room.name);
+  }
+
+  /* A floor cell of the room to start a fire on: the one nearest its centre that can burn. */
+  function fireSpot(room) {
+    const sim = state.sim, cx = room.x + room.w / 2, cy = room.y + room.h / 2;
+    let best = null, bestD = Infinity;
+    for (let y = room.y + 1; y < room.y + room.h - 1; y++) for (let x = room.x + 1; x < room.x + room.w - 1; x++) {
+      const d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2;
+      if (d < bestD && !sim.solid(y * sim.W + x)) { bestD = d; best = { x, y }; }
     }
+    return best;
   }
 
   function setView(mode) {
@@ -134,7 +174,7 @@
     live.clear(); showLive();
     syncFeed();
     reset();
-    say('Click the floor to start a fire. Click a door or exit to lock or unlock it.');
+    say(PA_IDLE);
   }
 
   function onDone() {
@@ -152,6 +192,7 @@
     state.annKey = key;
     const seq = ++state.annSeq;
     let text = G.fallbackAnnouncement(st);
+    $('pa').textContent = text;   // on screen at once; Gemini's wording replaces it (and is spoken) when it arrives
     if ($('gpa').checked && cfg().key) {
       try { text = await G.announce(cfg(), st); } catch (e) { log('PA: ' + e.message); }
     }

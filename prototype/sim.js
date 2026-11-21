@@ -7,6 +7,10 @@
   const ACTIVE = 0, OUT = 1, DOWN = 2;
   const DT = 0.5;            // seconds per tick
   const DOSE_LIMIT = 45;     // smoke dose at which a person goes down
+  /* Furniture from layout.objects (seen by a camera). These types block walking; all furniture burns faster
+   * than bare floor. Chairs and plants are drawn but people walk past them. */
+  const BLOCKING = { table: 1, desk: 1, sofa: 1, counter: 1, bar: 1, stage: 1, shelf: 1, screen: 1 };
+  const FURNITURE_FUEL = 2;      // fire spreads onto a furniture cell this many times faster
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
   function mulberry32(seed) {
@@ -119,10 +123,23 @@
       addOpenings('door', layout.doors);
       addOpenings('exit', layout.exits);
 
+      /* furn[i] = 1: a blocking piece of furniture stands on this floor cell. Cells next to a door or exit stay clear. */
+      this.furn = new Uint8Array(N);
+      const nearOpening = new Uint8Array(N);
+      for (const o of this.openings) for (const c of o.cells) { nearOpening[c] = 1; for (const e of this.adj[c]) nearOpening[e.j] = 1; }
+      for (const o of (Array.isArray(layout.objects) ? layout.objects : [])) {
+        if (!o || typeof o !== 'object' || !BLOCKING[o.type]) continue;
+        const x0 = Math.round(+o.x), y0 = Math.round(+o.y), w = Math.max(1, Math.round(+o.w) || 1), h = Math.max(1, Math.round(+o.h) || 1);
+        for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+          const i = y * W + x;
+          if (x >= 0 && y >= 0 && x < W && y < H && this.type[i] === FLOOR && !nearOpening[i]) this.furn[i] = 1;
+        }
+      }
+
       this.people = [];
       layout.rooms.forEach((r, ri) => {
         const cells = [];
-        for (let i = 0; i < N; i++) if (this.roomOf[i] === ri && this.type[i] === FLOOR) cells.push(i);
+        for (let i = 0; i < N; i++) if (this.roomOf[i] === ri && this.type[i] === FLOOR && !this.furn[i]) cells.push(i);
         for (let i = cells.length - 1; i > 0; i--) {
           const j = Math.floor(randPlace() * (i + 1)), t = cells[i]; cells[i] = cells[j]; cells[j] = t;
         }
@@ -142,6 +159,15 @@
       this.lastProgress = 0;
       this.stuck = 0;
       this.done = false;
+
+      /* A camera's furniture is rough. If it walls people in who had a route without it, do not use it. */
+      if (this.furn.some(v => v)) {
+        const walledIn = () => { this.computeDist(); return this.people.filter(p => this.trapped(p)).length; };
+        const withFurniture = walledIn(), kept = this.furn;
+        this.furn = new Uint8Array(N);
+        if (withFurniture <= walledIn()) this.furn = kept; else this.furnitureDropped = true;
+        this.dirty = true;
+      }
       this.computeDist();
     }
 
@@ -156,7 +182,7 @@
     }
 
     solid(i) { const t = this.type[i]; return t === WALL || t === LOCKED; }       // blocks fire, smoke, people
-    passable(i) { return !this.solid(i) && !this.fire[i]; }                        // a person can stand here
+    passable(i) { return !this.solid(i) && !this.fire[i] && !this.furn[i]; }       // a person can stand here
     canStep(e) { return this.passable(e.j) && (e.a < 0 || (this.passable(e.a) && this.passable(e.b))); }
 
     ignite(x, y) {
@@ -189,7 +215,7 @@
         if (fire[i] < 65535) fire[i]++;
         for (const e of adj[i]) {
           if (e.a >= 0) break;                                  // straight neighbors only
-          if (!fire[e.j] && !this.solid(e.j) && this.randFire() < this.fireRate) add.push(e.j);
+          if (!fire[e.j] && !this.solid(e.j) && this.randFire() < this.fireRate * (this.furn[e.j] ? FURNITURE_FUEL : 1)) add.push(e.j);
         }
       }
       for (const j of add) { fire[j] = 1; this.dirty = true; }

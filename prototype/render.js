@@ -3,7 +3,7 @@
   'use strict';
   const F = window.FireSim;
   const CELL = { [F.FLOOR]: '#171b22', [F.WALL]: '#465064', [F.LOCKED]: '#d0342c', [F.DOOR]: '#222a36', [F.EXIT]: '#2ecc71' };
-  const OUTSIDE = '#0c0f14';
+  const OUTSIDE = '#0c0f14', FURNITURE = '#7a5a3a';
   const PERSON = { route: '#5ad1ff', trapped: '#ff4fd8', down: '#8a2626' };
   const LABEL = { px: 11, minPx: 9, color: '#e6e9ee', halo: 'rgba(12,15,20,.9)', pad: 4, font: 'px system-ui, -apple-system, sans-serif' };
   const EXIT_PX = 11;
@@ -89,7 +89,7 @@
       const { W, N } = sim;
       for (let i = 0; i < N; i++) {
         const x = (i % W) * cs, y = ((i / W) | 0) * cs;
-        ctx.fillStyle = sim.covered[i] ? CELL[sim.type[i]] : OUTSIDE; ctx.fillRect(x, y, cs, cs);
+        ctx.fillStyle = !sim.covered[i] ? OUTSIDE : sim.furn[i] ? FURNITURE : CELL[sim.type[i]]; ctx.fillRect(x, y, cs, cs);
         if (sim.fire[i]) {
           const f = 0.5 + 0.5 * Math.sin(t / 90 + i * 1.7);
           ctx.fillStyle = 'rgb(255,' + Math.round(70 + 140 * f) + ',' + Math.round(20 + 40 * f) + ')';
