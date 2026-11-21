@@ -40,8 +40,10 @@ cd server && .venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8000 --en
 - **Determinism.** All randomness is seeded (`state.rng()` / the engine's seeded RNGs, never `Math.random()`
   in sim code). Same snapshot + scenario + seed = same result.
 - **Simulations run on a world snapshot**, never on the live, changing world.
-- **Whole agents only.** At most one person per cell; never fractional people. Estimated people (`hidden`,
-  `beyond`) stay labelled as estimates everywhere.
+- **Whole agents only.** Never fractional people. The planned live-world representation and legacy tile
+  baseline use at most one person per cell. The user-authorized continuous crowd model uses fractional
+  positions and physical body collisions: multiple simulated people may share a cell when they fit
+  (decisions F4–F5). Estimated people (`hidden`, `beyond`) stay labelled as estimates everywhere.
 - **Prevention, not response.** A camera detection may warn; it never starts a simulated event on its own.
 - **Coordinates:** `x` = column, `y` = row, in cells; heights in metres; flat index `i = y * width + x`; yaw in
   compass degrees (0 = north = −y, 90 = east = +x). three.js: `X = x*cellSize`, `Z = y*cellSize`, `Y` up.

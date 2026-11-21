@@ -1,6 +1,6 @@
 /* 3D voxel view of a Sim (three.js). Same interface as render.js: create() -> {fit, cellAt, draw}.
- * Reads sim state only; never changes it. The look follows web/src/render/scene.ts:
- * one box per cell, instanced. World: X = x, Z = y, Y up; 1 cell = 1 m. */
+ * Reads sim state only; never changes it. Architecture, jointed people and procedural hazards
+ * use instancing. World: X = x, Z = y, Y up; 1 cell = 1 m. */
 (function () {
   'use strict';
   const F = window.FireSim, T = window.THREE;
@@ -56,9 +56,13 @@
     const m4 = new T.Matrix4(), col = new T.Color();
     const raycaster = new T.Raycaster(), floorPlane = new T.Plane(new T.Vector3(0, 1, 0), 0);
     let group = null, built = null, size = '';
-    let openings, fire, smoke, bodies, heads, limbs, walls, heat;
+    let openings, bodies, heads, limbs, details, walls, heat, hazards;
     const crowd = window.CrowdVisual.create();
-    const sphere = new T.SphereGeometry(0.5, 8, 6);
+    const sphere = new T.SphereGeometry(0.5, 10, 8);
+    const limbShape = new T.CylinderGeometry(.5, .5, 1, 6);
+    const faceAxis = new T.Vector3(0,0,1);
+    const up = new T.Vector3(0,1,0), limbStart = new T.Vector3(), limbEnd = new T.Vector3();
+    const bodyEuler = new T.Euler(0,0,0,'YXZ');
     const rootMatrix = new T.Matrix4(), partMatrix = new T.Matrix4();
     const rotation = new T.Quaternion(), position = new T.Vector3(), scale = new T.Vector3();
     const shirts = [0x467e86, 0x9b785f, 0x6f86a0, 0x678577, 0xa78c62, 0x9c787e];
@@ -94,6 +98,7 @@
     }
 
     function build(sim) {
+      hazards?.dispose();
       if (group) { scene.remove(group); group.traverse(o => { if (o.isInstancedMesh) { o.material.dispose(); o.dispose(); } }); }
       group = new T.Group();
       scene.add(group);
@@ -116,11 +121,11 @@
       done(objects, sim.furniture.length);
 
       openings = instanced(sim.openings.reduce((n, o) => n + o.cells.length, 0));
-      fire = instanced(N, { emissive: 0xff5a00, emissiveIntensity: 0.6 });
-      smoke = instanced(N, { transparent: true, opacity: 0.5, depthWrite: false });
-      bodies = instanced(sim.people.length);
+      hazards = window.HazardVisual.create(group, N);
+      bodies = instanced(sim.people.length, {}, sphere);
       heads = instanced(sim.people.length, {}, sphere);
-      limbs = instanced(sim.people.length * 4);
+      limbs = instanced(sim.people.length * 8, {}, limbShape);
+      details = instanced(sim.people.length * 17, {}, sphere);
       heat = instanced(N, { transparent: true, opacity: 0.65, depthWrite: false });
 
       built = sim;
@@ -179,63 +184,87 @@
         outline.scale.set(o.w + 0.2, 1, o.h + 0.2);
       }
 
-      let nf = 0, ns = 0;
-      for (let i = 0; i < N; i++) {
-        const x = i % W, y = (i / W) | 0;
-        if (sim.fire[i]) {
-          const f = 0.5 + 0.5 * Math.sin(t / 90 + i * 1.7);
-          put(fire, nf++, x, y, FLOOR_T, 0.5 + 1.1 * f, 0.9, 0.9, col.setRGB(1, 0.27 + 0.55 * f, 0.08 + 0.15 * f).getHex());
-        } else if (sim.smoke[i] > 0.05 && sim.type[i] !== F.WALL) {
-          const h = Math.min(1, sim.smoke[i]) * 1.6;   // smoke fills the room from the ceiling down
-          put(smoke, ns++, x, y, WALL_H - h, h, 1, 1, COLOR.smoke);
-        }
-      }
-      done(fire, nf); done(smoke, ns);
-
       walls.scale.y = extra?.cutaway ? 0.35 : 1;
       const visual = crowd.update(sim, t, extra || {});
+      hazards.draw(sim, visual.clock / 1000, visual.reduced);
       let nh = 0;
       if (extra?.congestion) {
         for (let i = 0; i < N; i++) {
           if (!sim.covered[i] || sim.solid(i) || sim.fire[i]) continue;
-          const count = visual.crowding[i], waiting = visual.queued[i];
-          if (count < 3 && !waiting) continue;
-          const color = waiting >= 2 || count >= 6 ? 0xdf7667 : count >= 4 ? 0xe5a56c : 0xdbca79;
+          const level = visual.heat[i];
+          if (!level) continue;
+          const color = level === 3 ? 0xdf7667 : level === 2 ? 0xe5a56c : 0xdbca79;
           put(heat, nh++, i % W, Math.floor(i / W), FLOOR_T + 0.015, 0.015, 0.97, 0.97, color);
         }
       }
       done(heat, nh);
 
-      // Articulated figures follow engine positions. Animation never changes their route or speed.
-      function part(mesh, index, x, y, z, sx, sy, sz, pitch, color) {
-        position.set(x, y, z); scale.set(sx, sy, sz);
-        rotation.setFromAxisAngle(new T.Vector3(1, 0, 0), pitch);
-        partMatrix.compose(position, rotation, scale);
-        m4.multiplyMatrices(rootMatrix, partMatrix);
-        mesh.setMatrixAt(index, m4); mesh.setColorAt(index, col.setHex(color));
+      // Jointed figures follow real engine positions. Gestures are playful presentation only.
+      function part(mesh, index, x, y, z, sx, sy, sz, color, roll = 0) {
+        position.set(x,y,z); scale.set(sx,sy,sz); rotation.setFromAxisAngle(faceAxis,roll);
+        partMatrix.compose(position,rotation,scale); m4.multiplyMatrices(rootMatrix,partMatrix);
+        mesh.setMatrixAt(index,m4); mesh.setColorAt(index,col.setHex(color));
       }
-      let np = 0, nl = 0;
-      sim.people.forEach((p, index) => {
-        if (p.state === F.OUT) return;
-        const track = visual.tracks[index], isDown = p.state === F.DOWN || p.state === F.INJURED;
-        const color = p.state === F.INJURED ? COLOR.fallen : isDown ? COLOR.down : p.queueOpening >= 0 ? COLOR.queued : sim.trapped(p) ? COLOR.trapped : shirts[index % shirts.length];
-        rotation.setFromAxisAngle(new T.Vector3(0, 1, 0), track.heading);
-        rootMatrix.compose(position.set(track.x + 0.5, FLOOR_T, track.y + 0.5), rotation, scale.set(1, 1, 1));
-        if (isDown) {
-          part(bodies, np, 0, 0.17, 0, 0.38, 0.25, 0.9, 0, color);
-          part(heads, np, 0, 0.18, 0.6, 0.29, 0.29, 0.29, 0, COLOR.head);
+      function segment(index,ax,ay,az,bx,by,bz,width,color) {
+        limbStart.set(ax,ay,az); limbEnd.set(bx,by,bz).sub(limbStart);
+        const length=limbEnd.length();
+        position.copy(limbStart).addScaledVector(limbEnd,.5);
+        rotation.setFromUnitVectors(up,limbEnd.normalize());
+        partMatrix.compose(position,rotation,scale.set(width,length,width));
+        m4.multiplyMatrices(rootMatrix,partMatrix);
+        limbs.setMatrixAt(index,m4); limbs.setColorAt(index,col.setHex(color));
+      }
+      let np=0,nl=0,nd=0;
+      sim.people.forEach((p,index) => {
+        if(p.state===F.OUT)return;
+        const track=visual.tracks[index],isDown=p.state===F.DOWN || p.state===F.INJURED;
+        const skin=[0xf1c39c,0xc58d67,0x8f5b40,0xe0ad87][index%4];
+        const color=p.state===F.INJURED?COLOR.fallen:isDown?COLOR.down:p.queueOpening>=0?COLOR.queued:sim.trapped(p)?COLOR.trapped:shirts[index%shirts.length];
+        const lean=track.alert && track.moving ? .14 : 0;
+        bodyEuler.set(lean,track.heading + (track.waiting?track.sway:0),0);
+        rotation.setFromEuler(bodyEuler);
+        rootMatrix.compose(position.set(track.x+.5+(isDown?0:track.sway),FLOOR_T+(isDown?0:track.bob),track.y+.5),rotation,scale.setScalar(track.size));
+        if(isDown) {
+          part(bodies,np,0,.17,0,.4,.25,.85,color);
+          part(heads,np,0,.30,.60,.65,.55,.60,skin);
         } else {
-          const stride = p.queueOpening >= 0 ? 0 : track.phase;
-          part(bodies, np, 0, 0.88, 0, 0.42, 0.57, 0.28, 0, color);
-          part(heads, np, 0, 1.35, 0, 0.33, 0.36, 0.33, 0, p.knowsSecond ? 0xc4a0ff : COLOR.head);
-          part(limbs, nl++, -0.12, 0.31, stride * 0.15, 0.15, 0.57, 0.17, stride, 0x34464b);
-          part(limbs, nl++, 0.12, 0.31, -stride * 0.15, 0.15, 0.57, 0.17, -stride, 0x34464b);
-          part(limbs, nl++, -0.29, 0.84, -stride * 0.15, 0.13, 0.49, 0.14, -stride, color);
-          part(limbs, nl++, 0.29, 0.84, stride * 0.15, 0.13, 0.49, 0.14, stride, color);
+          const stride=track.moving?track.phase:track.shuffle*.12;
+          part(bodies,np,0,.96,0,.46,.68,.33,color);
+          // Oversized bobbleheads: whites, wandering pupils, catchlights and raised eyebrows.
+          // Eyes sit high on the face so expressions remain readable from the overhead camera.
+          part(heads,np,0,1.62,.025,.72,.78,.66,p.knowsSecond?0xc4a0ff:skin);
+          part(details,nd++,0,1.94,-.065,.70,.19,.54,index%3===0?0x775039:0x39332e);
+          const blink=!track.alert && !visual.reduced && (visual.clock/1000+index*.73)%4.4>4.27;
+          const glance=track.alert?track.wave*.035:Math.sin(index*1.7)*.025;
+          for(const side of [-1,1]) {
+            const eyeX=side*.17,eyeY=1.74+(index%3===1 && side===1 ? .025 : 0);
+            part(details,nd++,eyeX,eyeY,.305,.29,blink ? .055:track.alert ? .34:.28,.19,0xfff9e9);
+            part(details,nd++,eyeX+glance,eyeY+.015,.405,.105,blink ? .025:track.alert ? .14:.12,.065,0x252c31);
+            part(details,nd++,eyeX+glance-.025,eyeY+.05,.435,.034,blink ? .015:.042,.018,0xffffff);
+            part(details,nd++,eyeX,track.alert?1.97:1.93,.275,.25,.052,.065,0x49372d,side*(track.alert ? .3:-.12));
+          }
+          const mouthHeight=track.alert?[.22,.28,.18][index%3]:.11;
+          part(details,nd++,0,1.40,.318,track.alert ? .18:.23,mouthHeight,.07,0x51302b);
+          part(details,nd++,0,1.40+mouthHeight*.27,.36,.12,.035,.025,0xfff6db);
+          part(details,nd++,0,1.40-mouthHeight*.27,.36,.10,.038,.025,0xe88b8b);
+          part(details,nd++,0,1.57,.37,.09,.09,.10,skin);
+          for(const side of [-1,1]) {
+            const step=stride*side,footLift=Math.max(0,step)*.16;
+            segment(nl++,side*.12,.68,0,side*.13,.36+footLift*.4,.11+step*.12,.15,0x35454b);
+            segment(nl++,side*.13,.36+footLift*.4,.11+step*.12,side*.13,.095+footLift,step*.29,.13,0x35454b);
+            part(details,nd++,side*.13,.065+footLift,.045+step*.29,.18,.12,.28,0x26312e);
+            const wave=track.wave*side;
+            const elbowX=side*(track.alert ? .35:.30),elbowY=track.alert?1.46+wave*.045:.91;
+            const handX=side*(track.alert ? .43+wave*.04:.31),handY=track.alert?1.76+wave*.07:.67;
+            const elbowZ=track.alert?-.04:-step*.13,handZ=track.alert ? .04+wave*.06:-step*.22;
+            segment(nl++,side*.22,1.17,0,elbowX,elbowY,elbowZ,.13,color);
+            segment(nl++,elbowX,elbowY,elbowZ,handX,handY,handZ,.105,skin);
+            part(details,nd++,handX,handY,handZ,.14,.15,.13,skin);
+          }
         }
         np++;
       });
-      done(bodies, np); done(heads, np); done(limbs, nl);
+      done(bodies,np);done(heads,np);done(limbs,nl);done(details,nd);
 
       controls.update();
       renderer.render(scene, camera);

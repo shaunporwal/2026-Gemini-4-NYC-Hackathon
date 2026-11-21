@@ -116,14 +116,21 @@
     function draw(sim, t, extra) {
       const marks = extra && extra.marks;
       const { W, N } = sim;
+      const visual = crowd.update(sim, t, extra || {});
+      const motion = visual.reduced ? 0 : visual.clock;
       for (let i = 0; i < N; i++) {
         const x = (i % W) * cs, y = ((i / W) | 0) * cs;
         const blocked = sim.furn[i] || (sim.type[i] === F.FLOOR && sim.walkable && !sim.walkable[i]);   // furniture, or a blocked voxel of a grid map
         ctx.fillStyle = !sim.covered[i] ? OUTSIDE : blocked ? FURNITURE : CELL[sim.type[i]]; ctx.fillRect(x, y, cs, cs);
         if (sim.fire[i]) {
-          const f = 0.5 + 0.5 * Math.sin(t / 90 + i * 1.7);
-          ctx.fillStyle = 'rgb(255,' + Math.round(70 + 140 * f) + ',' + Math.round(20 + 40 * f) + ')';
-          ctx.fillRect(x, y, cs, cs);
+          const f = .85 + .15 * Math.sin(motion / 150 + i * 1.7);
+          const glow = ctx.createRadialGradient(x+cs*.5,y+cs*.55,0,x+cs*.5,y+cs*.55,cs*.7);
+          glow.addColorStop(0,'#fff3ae'); glow.addColorStop(.3,'#ffc54c');
+          glow.addColorStop(.65,'#f76518'); glow.addColorStop(1,'#cf3d0800');
+          ctx.fillStyle=glow; ctx.fillRect(x,y,cs,cs);
+          ctx.fillStyle='#ffe49a';ctx.beginPath();ctx.moveTo(x+cs*.22,y+cs*.8);
+          ctx.bezierCurveTo(x+cs*.05,y+cs*.45,x+cs*.6,y+cs*.4,x+cs*.48,y+cs*(1-f));
+          ctx.bezierCurveTo(x+cs*.9,y+cs*.45,x+cs*.85,y+cs*.9,x+cs*.22,y+cs*.8);ctx.fill();
         } else if (sim.smoke[i] > 0.02) {
           ctx.fillStyle = 'rgba(175,175,185,' + Math.min(0.8, sim.smoke[i] * 0.9) + ')';
           ctx.fillRect(x, y, cs, cs);
@@ -131,12 +138,11 @@
       }
       shown = sim;
       if (extra && extra.heat) riskOverlay(sim, extra.heat);
-      const visual = crowd.update(sim, t, extra || {});
       if (extra?.congestion) {
         for (let i = 0; i < N; i++) {
-          const count = visual.crowding[i], waiting = visual.queued[i];
-          if (!sim.covered[i] || sim.solid(i) || sim.fire[i] || (count < 3 && !waiting)) continue;
-          ctx.fillStyle = waiting >= 2 || count >= 6 ? '#df766799' : count >= 4 ? '#e5a56c88' : '#dbca7966';
+          const level = visual.heat[i];
+          if (!sim.covered[i] || sim.solid(i) || sim.fire[i] || !level) continue;
+          ctx.fillStyle = level === 3 ? '#df766799' : level === 2 ? '#e5a56c88' : '#dbca7966';
           ctx.fillRect(i % W * cs, Math.floor(i / W) * cs, cs, cs);
         }
       }
@@ -157,12 +163,24 @@
         if (p.state === F.OUT || (extra && extra.heat)) return;   // the risk map hides people
         const down = p.state === F.DOWN || p.state === F.INJURED, track = visual.tracks[index];
         ctx.save();
-        ctx.translate((track.x + 0.5) * cs, (track.y + 0.5) * cs);
+        ctx.translate((track.x + 0.5 + track.sway) * cs, (track.y + 0.5) * cs);
+        ctx.scale(track.size,track.size);
         ctx.rotate(-track.heading);
         ctx.fillStyle = p.state === F.INJURED ? PERSON.fallen : down ? PERSON.down : p.queueOpening >= 0 ? '#e99f60' : sim.trapped(p) ? PERSON.trapped : '#77b5b0';
         ctx.beginPath(); ctx.ellipse(0, 0, cs * 0.32, cs * 0.23, 0, 0, Math.PI * 2); ctx.fill();
+        if (track.alert && !down) {
+          ctx.strokeStyle='#f2c697';ctx.lineWidth=cs*.10;ctx.lineCap='round';
+          for (const side of [-1,1]) {
+            ctx.beginPath();ctx.moveTo(side*cs*.22,0);
+            ctx.lineTo(side*cs*.35,cs*.15);ctx.lineTo(side*cs*(.32+track.wave*.025),cs*.4);ctx.stroke();
+          }
+        }
         ctx.fillStyle = p.knowsSecond ? '#c4a0ff' : '#f2c697';
-        ctx.beginPath(); ctx.arc(0, cs * 0.09, cs * 0.17, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, cs * 0.09, cs * 0.27, 0, Math.PI * 2); ctx.fill();
+        if (!down) for (const side of [-1,1]) {
+          ctx.fillStyle='#fff9e9';ctx.beginPath();ctx.ellipse(side*cs*.12,cs*.21,cs*.11,cs*.13,0,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle='#252c31';ctx.beginPath();ctx.arc(side*cs*.12,cs*.25,cs*.047,0,Math.PI*2);ctx.fill();
+        }
         ctx.restore();
       });
       phones(extra && extra.phones);

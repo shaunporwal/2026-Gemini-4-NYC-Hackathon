@@ -211,6 +211,14 @@ export interface StatsSnapshot {
 | `StatsSnapshot` | stats |
 | `SimSystem`, `SimEvent`, the rest of `SimState` | everyone (announce changes) |
 
+## Continuous simulation representation
+
+The prototype engine keeps fractional cell positions for each simulated person, with physical size and speed converted using `cellSize`. Several bodies can occupy the same cell when they fit. The 30 Hz crowd clock is separate from 0.5-second fire/smoke updates; precise ignition times and the selected movement model are part of deterministic replay. Placement shortfalls are reported, and elapsed simulation time is separate from last exit time. Density/contact metrics are illustrative congestion measures, not injury predictions.
+
+`Sim` accepts `crowdMode: "continuous"` (default) or `"tiles"`. The live engine exposes `seconds` and integer `substep`; `tick` remains the completed 0.5-second hazard tick. Ignitions include `{tick, substep, x, y}`; retaining `substep` preserves input timing. Results add `elapsedSeconds`, `lastOutSeconds`, `requestedPeople`, `unplaced`, `crowdMode` and `modelVersion` (`continuous-v1` / `tiles-v1`). A nonzero `unplaced` is a placement shortfall, not an evacuation.
+
+This is an engine change, not a migration of the proposed `TrackedPerson` / `WorldSnapshot` types below. Their one-person-per-cell rule describes planned live estimates, not crowd collision capacity.
+
 ## PLANNED types: live world, scenarios, agent (not in `types.ts` yet)
 Design sketches for `docs/LIVE_WORLD.md`, `docs/SCENARIOS.md` and `docs/AGENT.md`. Not implemented. Shapes
 will be fixed when the open decisions in `docs/ARCHITECTURE.md` (A: world format, C: where the live world
@@ -232,7 +240,7 @@ interface WorldSnapshot {
   cells: Uint8Array;                  // CellType after obstacles are applied
   walkable: Uint8Array;
   openings: { cells: number[]; name?: string; state: OpeningState }[];
-  people: TrackedPerson[];            // whole agents, at most one per cell
+  people: TrackedPerson[];            // planned live-estimation representation: whole people, at most one per cell
   obstacles: TrackedObstacle[];
   coverage: Float32Array;             // seconds since each cell was last observed (Infinity = never)
 }
