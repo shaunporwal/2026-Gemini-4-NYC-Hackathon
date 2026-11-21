@@ -37,7 +37,9 @@ Each module has **one owner**. Others may read it and open small PRs, but the ow
 
 ## Open questions
 - [ ] Fire/smoke model details and casualty rule (fire owner)
-- [ ] Exact `Observation` payload + update rate from Gemini (feed owner)
+- [x] Exact `Observation` payload + update rate from Gemini (feed owner): `docs/CONTRACTS.md`, `server/README.md`
 - [ ] How live counts reconcile with existing agents (spawn/remove vs. adjust) (crowd + feed)
 - [ ] Demo venue: keep `demo-hall.json` or model the hackathon venue?
-- [ ] Server language (Python vs. Node) (feed owner)
+- [x] Server language (Python vs. Node) (feed owner): Python, DECISIONS #23
+- [ ] Who builds floor plan photo → map JSON (schema v2), and with which Gemini 4 model (DECISIONS #20)
+- [ ] Confirm `gemini-decision-1` counts toward the two-Gemini-4-models rule; if not, Carbon for the floor plan covers it
