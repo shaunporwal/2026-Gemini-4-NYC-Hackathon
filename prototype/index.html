@@ -10,7 +10,11 @@
 <header class="topbar">
   <div class="brand"><span class="brandmark" aria-hidden="true">↗</span><div><h1>Evacuation Twin</h1><span>Venue intelligence</span></div></div>
   <nav id="pages" aria-label="Page" hidden><a href="/camera">Camera</a><a class="on" aria-current="page">Twin</a></nav>
-  <select id="preset" aria-label="Layout"></select>
+  <div id="presetPicker" class="preset-picker">
+    <select id="preset" aria-label="Layout source" hidden></select>
+    <button id="presetTrigger" type="button" aria-label="Layout" aria-haspopup="listbox" aria-expanded="false" aria-controls="presetList"><span id="presetLabel">Choose a layout</span><span class="picker-chevron" aria-hidden="true">⌄</span></button>
+    <div id="presetList" role="listbox" aria-label="Venue layouts" hidden></div>
+  </div>
   <span id="feedState" class="connection">Connecting cameras…</span>
   <button id="setup" class="quiet">Settings</button>
 </header>
@@ -29,7 +33,7 @@
   <section id="stage" aria-label="Interactive venue model">
     <canvas id="cv"></canvas><canvas id="cv3d" hidden></canvas><div id="liveView" hidden></div>
     <div class="stage-label"><span class="status-dot"></span><span id="sceneStatus">Venue snapshot</span></div>
-    <div class="maplegend" id="mapLegend"><span><i class="swatch people"></i>People</span><span><i class="swatch exits"></i>Exit</span><span><i class="swatch busy"></i>Gathering</span><span><i class="swatch queue"></i>Queue / dense cluster</span></div>
+    <div class="maplegend" id="mapLegend"><span><i class="swatch people"></i>People</span><span><i class="swatch exits"></i>Exit</span><span><i class="swatch busy"></i>Gathering</span><span><i class="swatch queue"></i>Queue / dense cluster</span><span id="crowdModeLabel">Continuous movement · modeled crowd density</span></div>
     <span id="hint3d" hidden>Drag to orbit · Right-drag to pan · Scroll to zoom</span>
   </section>
   <div class="playback">
@@ -39,7 +43,7 @@
       <button id="pause" disabled>Pause</button>
       <button id="replay" disabled>Replay</button>
       <button id="reset" class="quiet">Return to venue</button>
-      <label class="speed-control">Playback <input id="speed" type="range" min="4" max="60" value="8"><output id="speedLabel">4×</output></label>
+      <label class="speed-control">Playback <input id="speed" type="range" min="1" max="60" value="8"><output id="speedLabel">4×</output></label>
       <button id="freeze" aria-pressed="false" class="quiet">Freeze twin</button>
     </div>
     <div id="stats"></div>
@@ -111,11 +115,11 @@
     <tbody id="seen"></tbody>
   </table>
   <table>
-    <thead><tr><th>Fix candidate</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
+    <thead><tr><th>Fix candidate</th><th>Out</th><th title="Modeled down plus still inside when the run ends">Not out</th><th>Time</th></tr></thead>
     <tbody id="fixes"></tbody>
   </table>
   <table>
-    <thead><tr><th>Run</th><th>Out</th><th>Lost</th><th>Time</th></tr></thead>
+    <thead><tr><th>Run</th><th>Out</th><th title="Modeled down plus still inside when the run ends">Not out</th><th>Time</th></tr></thead>
     <tbody id="runs"></tbody>
   </table>
 </details>
@@ -137,7 +141,9 @@
   <div class="row">
 
     <label>Fire spread <input id="rate" type="range" min="0.02" max="0.16" step="0.01" value="0.08"></label>
+    <label>Crowd movement <select id="crowdMode"><option value="continuous">Continuous · natural movement</option><option value="tiles">Tiles · original baseline</option></select></label>
   </div>
+  <p class="muted">Changing crowd movement resets the rehearsal. Continuous movement uses body spacing and local avoidance; colors show modeled crowd density, not injury predictions.</p>
   <label>Gemini API key <span id="keyState"></span><input id="key" type="password" placeholder="kept in this tab only" autocomplete="off"></label>
   <div class="row">
     <label>Fast: photos and fixes <input id="model" type="text" value="gemini-4-hydrogen"></label>
@@ -153,15 +159,18 @@
 </dialog>
 
 <script src="layouts.js"></script>
+<script src="continuous.js"></script>
 <script src="sim.js"></script>
 <script src="crowdvisual.js"></script>
 <script src="render.js"></script>
 <script src="vendor/three.bundle.js"></script>
+<script src="hazardvisual.js"></script>
 <script src="render3d.js"></script>
 <script src="renderlive.js"></script>
 <script src="gemini.js"></script>
 <script src="feed.js"></script>
 <script src="assistant.js"></script>
+<script src="presetpicker.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

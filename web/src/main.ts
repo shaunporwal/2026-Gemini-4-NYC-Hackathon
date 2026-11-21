@@ -12,20 +12,28 @@ async function boot() {
   const hud = document.getElementById("hud")!;
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
   const start = button("start"), pause = button("pause"), reset = button("reset"), replay = button("replay");
-  let sim = createVoxelSimulation(map);
+  const crowdMode = new URLSearchParams(location.search).get("crowd") === "tiles" ? "tiles" : "continuous";
+  let sim = createVoxelSimulation(map, crowdMode);
   let origin: { x: number; y: number } | null = null;
   let running = false;
   let lastTime = performance.now(), elapsed = 0;
   let inspection = "";
 
-  function sync() {
+  function syncPeople() {
     const active = sim.people.filter(p => p.state === engine.ACTIVE);
-    view.setPeople(active.map(p => ({ x: p.i % map.width + 0.5, y: Math.floor(p.i / map.width) + 0.5 })));
+    const alpha = running && !sim.done ? Math.min(1, elapsed / engine.CROWD_DT) : 1;
+    view.setPeople(active.map(p => sim.crowdMode === "continuous" ? {
+      x: p.prevX + (p.x - p.prevX) * alpha,
+      y: p.prevY + (p.y - p.prevY) * alpha,
+    } : { x: p.i % map.width + 0.5, y: Math.floor(p.i / map.width) + 0.5 }));
+  }
+  function sync() {
+    syncPeople();
     view.setHazards(sim.fire, sim.smoke);
     const stats = sim.stats();
     const status = sim.done ? "Finished" : running ? "Running" : origin ? "Paused" : "Ready";
     hud.textContent = [
-      map.name + " · " + status + " · " + (sim.tick * engine.DT).toFixed(1) + " s",
+      map.name + " · " + status + " · " + sim.seconds.toFixed(1) + " s · " + crowdMode + " movement",
       "Inside " + stats.active + "  ·  Out " + stats.out + "  ·  No route " + stats.trapped + "  ·  Down (model) " + stats.down,
       inspection || (origin ? "Orange = fire · Grey = smoke" : "Click a floor cell to ignite. Drag to orbit."),
     ].join("\n");
@@ -60,7 +68,7 @@ async function boot() {
   pause.onclick = () => { running = !running; lastTime = performance.now(); sync(); };
   function restart(repeat: boolean) {
     const previous = origin;
-    sim = createVoxelSimulation(map);
+    sim = createVoxelSimulation(map, crowdMode);
     origin = null;
     running = false;
     elapsed = 0;
@@ -88,13 +96,15 @@ async function boot() {
 
   function frame(now: number) {
     if (running) {
-      elapsed += Math.min(0.25, (now - lastTime) / 1000);
-      if (elapsed >= engine.DT) {
-        sim.step();
-        elapsed -= engine.DT;
-        if (sim.done) running = false;
-        sync();
+      elapsed += Math.max(0, (now - lastTime) / 1000);
+      const started = performance.now();
+      for (let n = 0; elapsed + 1e-9 >= engine.CROWD_DT && n < 120 && !sim.done; n++) {
+        sim.advance();
+        elapsed = Math.max(0, elapsed - engine.CROWD_DT);
+        if (performance.now() - started > 10) break;
       }
+      if (sim.done) running = false;
+      sync();
     }
     lastTime = now;
     view.draw();

@@ -1,10 +1,11 @@
 /* Fire twin: deterministic simulation core. No DOM, no network.
- * Grid: 1 cell = 1 m. 1 tick = 0.5 s. Physics and routing are code, not LLM. */
+ * Grid hazards tick every 0.5 s; continuous crowds substep at 30 Hz. No render-owned physics. */
 (function (root) {
   'use strict';
 
   const FLOOR = 0, WALL = 1, LOCKED = 2, DOOR = 3, EXIT = 4;
   const ACTIVE = 0, OUT = 1, DOWN = 2;
+  const CROWD_DT = 1 / 30, SUBSTEPS = 15;
   const DT = 0.5;            // seconds per tick
   const DOSE_LIMIT = 45;     // smoke dose at which a person goes down
   /* Furniture from layout.objects (seen by a camera). These types block walking; all furniture burns faster
@@ -101,10 +102,15 @@
     constructor(layout, opts) {
       opts = opts || {};
       this.L = layout;
+      this.crowdMode = opts.crowdMode === 'tiles' ? 'tiles' : 'continuous';
+      this.modelVersion = this.crowdMode === 'continuous' ? 'continuous-v1' : 'tiles-v1';
+      this.substep = 0; this.seconds = 0; this.alarmSeconds = -1;
+      this.lastOutSeconds = 0; this.routeRevision = 0;
+      this.requestedPeople = 0; this.unplaced = 0;
       // Awareness uses its own randomness so cues cannot change placement or fire.
       this.awareness = opts.awareness || null;
       this.cueDelivered = false;
-      this.horizonSeconds = opts.horizonSeconds;
+      this.horizonSeconds = opts.horizonSeconds ?? (this.crowdMode === 'continuous' ? 120 : undefined);
       this.awarenessEvents = [];
       this.familiarDist = new Float64Array(layout.width * layout.height);
       const randAwareness = mulberry32((opts.seed || 7) * 3571 + 17);
@@ -153,7 +159,10 @@
         for (let y = r.y; y < r.y + r.h; y++) { this.type[y * W + r.x] = WALL; this.type[y * W + r.x + r.w - 1] = WALL; }
       });
 
-      if (grid) this.type.set(grid.terrain);
+      if (grid) {
+        this.type.set(grid.terrain);
+        for (let i = 0; i < N; i++) this.covered[i] = grid.terrain[i] !== WALL ? 1 : 0;
+      }
       this.openings = [];
       const addOpenings = (kind, refs) => refs.forEach(ref => {
         const cells = [];
@@ -181,15 +190,21 @@
       }
 
       this.people = [];
-      const spawn = i => {
-        if (!this.passable(i)) return;
+      const spawn = (i, x = i % W + .5, y = Math.floor(i / W) + .5) => {
+        if (!this.passable(i)) { this.unplaced++; return; }
         this.occ[i] = this.people.length;
         this.people.push({
-          i, state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10),
+          id: this.people.length, i, x, y, state: ACTIVE, dose: 0, cool: 0, delay: Math.floor(randPlace() * 10),
           queueOpening: -1, queueStreakSeconds: 0, knowsSecond: false, cueResponse: randAwareness()
         });
       };
-      if (grid) grid.spawnCells.forEach(spawn);
+      if (grid) {
+        this.requestedPeople += grid.spawnCells.length;
+        for (const i of grid.spawnCells) {
+          if (this.occ[i] >= 0) { this.unplaced++; continue; }
+          spawn(i);
+        }
+      }
       layout.rooms.forEach((r, ri) => {
         const cells = [];
         for (let i = 0; i < N; i++) if (this.roomOf[i] === ri && this.type[i] === FLOOR && this.passable(i)) cells.push(i);
@@ -199,12 +214,24 @@
         /* Phones counted these people in what they see: put them in the phones' fields of view first (r.views = their poses). */
         const vs = r.views || (r.view ? [r.view] : null), seen = i => vs.some(v => inView(v, i % W, (i / W) | 0));
         const order = vs ? cells.filter(seen).concat(cells.filter(i => !seen(i))) : cells;
-        for (let k = 0, n = Math.min(r.people || 0, order.length); k < n; k++) {
-          spawn(order[k]);
+        const wanted = r.people || 0;
+        this.requestedPeople += wanted;
+        // Dense rooms use physical subcell slots. The observation count is never silently reduced.
+        const across = this.crowdMode === 'continuous' && wanted > order.length
+          ? Math.max(1, Math.floor(this.cellSize / .46)) : 1;
+        const count = Math.min(wanted, order.length * across * across);
+        for (let k = 0; k < count; k++) {
+          const i = order[k % order.length], slot = Math.floor(k / order.length);
+          spawn(i, i % W + ((slot % across) + .5) / across,
+            Math.floor(i / W) + (Math.floor(slot / across) + .5) / across);
         }
+        this.unplaced += wanted - count;
       });
 
-      this.scheduled = (opts.ignitions || []).map(o => ({ tick: o.tick | 0, x: o.x | 0, y: o.y | 0 }));
+      this.scheduled = (opts.ignitions || []).map(o => ({
+        substep: Number.isInteger(o.substep) ? o.substep : (o.tick | 0) * SUBSTEPS,
+        x: o.x | 0, y: o.y | 0
+      }));
       this.ignitions = [];      // log of this run; feed to a new Sim to replay the same fire
       this.tick = 0;
       this.alarmTick = -1;
@@ -224,6 +251,11 @@
         this.dirty = true;
       }
       this.computeDist();
+      if (this.crowdMode === 'continuous') {
+        const crowd = root.ContinuousCrowd || (typeof require === 'function' ? require('./continuous.js') : null);
+        if (!crowd) throw new Error('The continuous crowd module is missing.');
+        this.crowd = crowd.create(this, opts);
+      }
     }
 
     /* Call after ref.locked changes. */
@@ -233,7 +265,7 @@
         this.type[c] = o.ref.locked ? LOCKED : (o.kind === 'exit' ? EXIT : DOOR);
         this.tagOf[c] = idx;
       }
-      if (!init) this.computeDist();
+      if (!init) { this.computeDist(); this.crowd?.refresh(); }
     }
 
     solid(i) { const t = this.type[i]; return t === WALL || t === LOCKED; }       // blocks fire, smoke, people
@@ -245,23 +277,49 @@
       const i = y * this.W + x;
       if (this.solid(i) || this.fire[i]) return false;
       this.fire[i] = 1;
-      if (this.alarmTick < 0) this.alarmTick = this.tick;
-      this.ignitions.push({ tick: this.tick, x, y });
+      if (this.alarmTick < 0) { this.alarmTick = this.tick; this.alarmSeconds = this.seconds; }
+      this.ignitions.push({ tick: this.tick, substep: this.substep, x, y });
       this.dirty = true;
       return true;
     }
 
+    // Compatibility with existing headless callers: run to the next hazard boundary.
     step() {
+      const end = (Math.floor(this.substep / SUBSTEPS) + 1) * SUBSTEPS;
+      while (!this.done && this.substep < end) this.advance();
+    }
+
+    advance() {
       if (this.done) return;
-      for (const s of this.scheduled) if (s.tick === this.tick) this.ignite(s.x, s.y);
-      this.tick++;
-      if (this.alarmTick < 0) return;
-      this.spreadFire();
-      this.diffuseSmoke();
-      if (this.dirty || this.tick % 2 === 0) this.computeDist();
-      this.deliverCue();
-      this.movePeople();
-      this.checkEnd();
+      for (const s of this.scheduled) if (s.substep === this.substep) this.ignite(s.x, s.y);
+      this.substep++;
+      this.seconds = this.substep * CROWD_DT;
+      this.tick = Math.floor(this.substep / SUBSTEPS);
+      const boundary = this.substep % SUBSTEPS === 0;
+      if (this.alarmTick < 0) {
+        // Invalid or absent ignition must not leave a headless baseline running forever.
+        if (this.seconds >= (Number.isFinite(this.horizonSeconds) ? this.horizonSeconds : 120)) this.done = true;
+        return;
+      }
+      if (boundary) {
+        this.spreadFire(); this.diffuseSmoke();
+        if (this.dirty || this.tick % 2 === 0) this.computeDist();
+      } else if (this.dirty) this.computeDist();
+      if (this.crowdMode === 'tiles') {
+        if (boundary) { this.deliverCue(); this.movePeople(); this.checkEnd(); }
+      } else {
+        this.deliverCue();
+        // Preserve the previous dose scale: 45 index-ticks = 22.5 index-seconds.
+        for (const p of this.people) if (p.state === ACTIVE) {
+          p.dose += this.smoke[p.i] * CROWD_DT / DT;
+          if (this.fire[p.i] || p.dose > DOSE_LIMIT) this.leave(p, DOWN);
+        }
+        this.crowd.step(CROWD_DT);
+        for (const p of this.people) if (p.state === ACTIVE && this.fire[p.i]) this.leave(p, DOWN);
+        if (boundary) this.checkEnd();
+        if (this.people.every(p => p.state !== ACTIVE)
+          || (Number.isFinite(this.horizonSeconds) && this.seconds - this.alarmSeconds >= this.horizonSeconds - 1e-9)) this.done = true;
+      }
     }
 
     spreadFire() {
@@ -295,7 +353,7 @@
     /* Dijkstra from all open exits. Cost rises with smoke and near fire. */
     computeDist() {
       const { N, fire, nearFire, adj } = this;
-      this.dirty = false;
+      this.dirty = false; this.routeRevision++;
       nearFire.fill(0);
       for (let i = 0; i < N; i++) if (fire[i]) for (const e of adj[i]) nearFire[e.j] = 1;
       this.fillDistances(this.dist, this.awareness
@@ -346,12 +404,12 @@
     deliverCue() {
       const a = this.awareness;
       if (!a || this.cueDelivered || !Number.isFinite(a.cueSeconds)) return;
-      if ((this.tick - this.alarmTick) * DT < a.cueSeconds) return;
+      if (this.seconds - this.alarmSeconds + 1e-9 < a.cueSeconds) return;
       this.cueDelivered = true;
       for (const [index, p] of this.people.entries()) {
         if (p.state !== ACTIVE || p.cueResponse >= a.reception) continue;
         p.knowsSecond = true;
-        this.awarenessEvents.push({ person: index + 1, seconds: this.tick * DT, exit: a.second });
+        this.awarenessEvents.push({ person: index + 1, seconds: this.seconds, exit: a.second });
       }
     }
 
@@ -362,12 +420,15 @@
     /* With a route: go down the distance field. Without: go to cleaner air. */
     score(p, i) { return this.trapped(p) ? this.smoke[i] + this.nearFire[i] : this.distanceFor(p)[i]; }
 
-    leave(p, state) {
+    leave(p, state, openingIndex) {
+      if (p.state !== ACTIVE) return;
+      p.vx = p.vy = 0;
       p.state = state; this.occ[p.i] = -1; this.lastProgress = this.tick;
       if (state === DOWN) { this.down++; return; }
-      const id = this.openings[this.tagOf[p.i]].ref.id;
+      const opening = this.openings[openingIndex ?? this.tagOf[p.i]];
+      const id = opening.ref.id;
       this.exitUse[id] = (this.exitUse[id] || 0) + 1;
-      this.out++; this.lastOutTick = this.tick;
+      this.out++; this.lastOutSeconds = this.seconds; this.lastOutTick = this.seconds / DT;
     }
 
     /* Trace a denied step through the occupied line. An empty floor cell breaks
@@ -396,7 +457,7 @@
       return this.doorQueues.map((q, i) => ({
         id: this.openings[i].ref.id, kind: this.openings[i].kind,
         waiting: q.waiting, peak: q.peak, people: q.people.size,
-        waitSeconds: q.waitSeconds, maxWaitSeconds: q.maxWaitSeconds, smokeSeconds: q.smokeSeconds
+        waitSeconds: +q.waitSeconds.toFixed(3), maxWaitSeconds: +q.maxWaitSeconds.toFixed(3), smokeSeconds: +q.smokeSeconds.toFixed(3)
       }));
     }
 
@@ -455,7 +516,7 @@
     checkEnd() {
       const { active, trapped } = this.counts();
       if (Number.isFinite(this.horizonSeconds) && this.alarmTick >= 0) {
-        this.done = active === 0 || (this.tick - this.alarmTick) * DT >= this.horizonSeconds;
+        this.done = active === 0 || this.seconds - this.alarmSeconds >= this.horizonSeconds - 1e-9;
         return;
       }
       if (active === 0) this.done = true;
@@ -465,12 +526,13 @@
       if (this.tick - this.lastProgress > 400 || this.tick > 8000) this.done = true;
     }
 
-    /* Live numbers. After the run ends, people still inside count as lost. */
+    /* `lost` is the legacy not-evacuated total (down + still inside), not a fatality count. */
     stats() {
       const { active, trapped } = this.counts();
       return { total: this.people.length, out: this.out, down: this.down, trapped, active,
                lost: this.down + active, ticks: this.tick,
-               seconds: Math.round((this.done && !Number.isFinite(this.horizonSeconds) ? this.lastOutTick : this.tick) * DT),
+               seconds: Math.round(this.seconds), elapsedSeconds: this.seconds, lastOutSeconds: this.lastOutSeconds,
+               requestedPeople: this.requestedPeople, unplaced: this.unplaced, crowdMode: this.crowdMode, modelVersion: this.modelVersion,
                exitUse: Object.assign({}, this.exitUse) };
     }
 
@@ -553,7 +615,7 @@
       : String(a.action);
   }
 
-  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
+  const api = { Sim, run, applyAction, applyObservation, actionLabel, validateLayout, clone, openingsOf,                 DT, CROWD_DT, FLOOR, WALL, LOCKED, DOOR, EXIT, ACTIVE, OUT, DOWN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FireSim = api;
 })(typeof window !== 'undefined' ? window : globalThis);
