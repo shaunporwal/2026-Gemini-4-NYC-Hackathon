@@ -127,14 +127,38 @@ export interface Agent {
   sourceCameraId?: string;
 }
 
-/** Message from the Gemini feed (server → browser). DRAFT, owned by the feed teammate. */
+/**
+ * Message from the Gemini feed (server → browser), one per camera per processed frame.
+ * Owned by the feed/server teammate. Wire format and producer: server/README.md.
+ */
 export interface Observation {
-  cameraId: string;
-  timestamp: number; // ms epoch
-  peopleCount: number;
-  density?: "empty" | "sparse" | "moderate" | "crowded" | "packed";
-  events?: string[]; // e.g. "smoke", "alarm", "screaming"
-  summary?: string; // free-text scene description
+  cameraId: string; // a CameraDef.id from the map
+  timestamp: number; // ms epoch, when the frame arrived
+  peopleCount: number; // people seen (Hydrogen); 0 when Decisions says nobody is there
+  density?: "empty" | "sparse" | "moderate" | "crowded" | "packed"; // Decisions, every frame
+  events?: string[]; // any of "fire", "smoke", "exit_blocked", "alarm", "screaming"
+  summary?: string; // one-line scene description (Hydrogen); never identifies people
+  /**
+   * Estimated floor positions (cells, float), projected from foot points with the camera pose.
+   * Approximate: they can land on a wall or table cell, so snap to the nearest walkable cell.
+   * Empty for a camera that isn't in the map.
+   */
+  people?: { x: number; y: number }[];
+  /** Fire or smoke seen on this camera (debounced over consecutive frames). */
+  hazards?: { type: "fire" | "smoke"; confidence: number }[];
+  /** Each exit this camera sees: its cells (flat indices) and whether it looks blocked. */
+  exits?: { cells: number[]; blocked: boolean; p: number }[];
+  /** Health of the camera stream, for the UI. */
+  stream?: {
+    ok: boolean;
+    latencyMs: number | null;
+    lastFrame: number | null; // s epoch
+    frames: number;
+    decisionCalls: number;
+    hydrogenCalls: number;
+    audioCalls: number;
+    error: string | null;
+  };
 }
 
 export type SimEvent = { type: "ignite"; x: number; y: number } | { type: "reset" };
@@ -178,6 +202,6 @@ export interface StatsSnapshot {
 | `MapFile`, `MapDimensions`, `CellTypeName`, `ZoneDef`, `CameraDef`, `MapModel`, `CameraState`, `PersonSpawn`, `CellType` | map |
 | `SimState` layers `fire`, `smoke`, `heat`, `fuel` | fire |
 | `Agent`, `SimState.agents` | crowd |
-| `Observation` (**DRAFT**) | feed / server |
+| `Observation` | feed / server |
 | `StatsSnapshot` | stats |
 | `SimSystem`, `SimEvent`, the rest of `SimState` | everyone (announce changes) |
