@@ -17,7 +17,7 @@
     const plan = { width: layout.width, height: layout.height,
       rooms: layout.rooms.map(r => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) };
     const res = await fetch(BASE + '/twin', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, plan })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, plan, layout })
     });
     if (!res.ok) throw new Error('feed server ' + res.status);
     return res.json();
@@ -43,5 +43,8 @@
   const qrUrl = () => BASE + '/qr.svg?t=' + Date.now();
   const info = () => fetch(BASE + '/').then(r => r.json());
 
-  window.Feed = { configure, listen, frameUrl, qrUrl, info };
+  /* The presenter's current layout, for a copy of the page that someone else opens. Null if there is none. */
+  const layout = () => fetch(BASE + '/layout').then(r => (r.ok ? r.json() : null));
+
+  window.Feed = { configure, listen, frameUrl, qrUrl, info, layout, presenter: PRESENTER };
 })();

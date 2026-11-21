@@ -62,6 +62,8 @@ workers: dict[str, asyncio.Task] = {}
 observations: dict[str, dict] = {}  # latest Observation per cameraId
 clients: set[WebSocket] = set()
 rooms: list[str] = []  # room names of the twin on screen (prototype/). A room name also works as a camera id.
+twin_layout: dict = {}  # the presenter's whole layout JSON, passed on as is to copies of the twin page (GET /layout)
+LAYOUT_MAX_BYTES = 300_000
 plan: dict = {}  # floor plan of that twin for the phone's room picker: {width, height, rooms: [{name, x, y, w, h}]}
 
 
@@ -293,7 +295,19 @@ async def post_twin(request: Request):
             {"name": str(r.get("name"))[:60], **{k: num(r.get(k)) for k in ("x", "y", "w", "h")}}
             for r in p["rooms"][:200] if isinstance(r, dict)])
         rooms[:] = [r["name"] for r in plan["rooms"]]
+    lay = body.get("layout")
+    if isinstance(lay, dict) and len(json.dumps(lay)) <= LAYOUT_MAX_BYTES:
+        twin_layout.clear()
+        twin_layout.update(lay)
     return {"ready": P.has_key(), "rooms": len(rooms)}
+
+
+@app.get("/layout")
+async def get_layout():
+    """The presenter's layout, for a copy of the twin page opened somewhere else."""
+    if not twin_layout:
+        return JSONResponse({"error": "no layout yet"}, status_code=404)
+    return JSONResponse(twin_layout, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/frame/{cam_id}/latest.jpg")

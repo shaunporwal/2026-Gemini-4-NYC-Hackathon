@@ -279,6 +279,10 @@
     setInterval(showLive, 1000);
     FEED.listen(onObservation, up => { if (up) syncFeed(); $('feedState').textContent = up ? FEED_ON : FEED_OFF; });
     loadLayout(F.clone(LAYOUTS[$('preset').value]));
+    if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
+      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = true;
+      FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});
+    }
     requestAnimationFrame(frame);
   }
 

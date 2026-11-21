@@ -9,7 +9,7 @@
   :root {
     color-scheme: dark;
     --bg: #0c0f14; --panel: #11151c; --control: #1b212c; --line: #323b4a; --text: #e6e9ee; --muted: #9aa4b2;
-    --accent: #2b6cb0; --ok: #4ade80; --bad: #ff6b61; --video: #000;
+    --accent: #2b6cb0; --focus: #7cc4ff; --ok: #4ade80; --bad: #ff6b61; --video: #000;
     --gutter: 12px; --gap: 8px; --tap: 48px; --radius: 10px; --fs: 16px; --fs-small: 13px; --fs-title: 18px;
   }
   * { box-sizing: border-box; }
@@ -17,9 +17,17 @@
   body { display: flex; flex-direction: column; gap: var(--gap); padding: var(--gutter); padding-bottom: max(var(--gutter), env(safe-area-inset-bottom));
          background-color: var(--bg); color: var(--text); font: var(--fs)/1.35 system-ui, -apple-system, sans-serif; overflow-wrap: anywhere; }
   header { display: flex; align-items: center; gap: var(--gap); min-height: var(--tap); }
-  #change { max-width: 55%; text-align: left; }
+  #change { max-width: 60%; text-align: left; }
   h1 { flex: 1; margin: 0; font-size: var(--fs-title); }
-  h1 small { display: block; color: var(--muted); font-size: var(--fs-small); font-weight: 400; }
+  /* Page switch: this camera page and the twin (the simulation). 2 joined links; the current page is marked. */
+  nav { display: flex; flex: none; }
+  nav a { min-height: var(--tap); min-width: 84px; padding: 0 16px; display: flex; align-items: center; justify-content: center;
+          border: 1px solid var(--line); background-color: var(--control); color: inherit; text-decoration: none; }
+  nav a:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+  nav a:last-child { border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; }
+  nav a.on { background-color: var(--panel); border-color: var(--focus); position: relative; font-weight: 600; }
+  #sub { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); min-height: 24px; }
+  #where { color: var(--muted); font-size: var(--fs-small); }
   button, .file { min-height: var(--tap); padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--line);
                   background-color: var(--control); color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; }
   button.primary { background-color: var(--accent); border-color: var(--accent); font-weight: 600; }
@@ -67,9 +75,15 @@
 </head>
 <body>
 <header>
-  <h1>Fire Twin camera<small id="where">Pick the room you are in</small></h1>
-  <button id="change" hidden></button>
+  <h1>Fire Twin</h1>
+  <nav aria-label="Page">
+    <a class="on" aria-current="page">Camera</a><a href="/app/">Twin</a>
+  </nav>
 </header>
+<div id="sub">
+  <span id="where">Pick the room you are in</span>
+  <button id="change" hidden></button>
+</div>
 
 <section id="pick">
   <svg id="plan" hidden></svg>
@@ -120,7 +134,7 @@ function status(text, cls) { $('status').textContent = text; $('status').classNa
 function enter(room, startNow) {
   cam = room;
   history.replaceState(null, '', '/camera?id=' + encodeURIComponent(room));
-  $('where').textContent = 'Tap the room name to change it';
+  $('where').textContent = 'Your room (tap to change):';
   $('change').textContent = room;
   show($('pick'), false); show($('cam'), true); show($('change'), true);
   if (startNow) start();
