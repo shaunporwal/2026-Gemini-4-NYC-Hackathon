@@ -67,7 +67,9 @@
   /* Step 2: the camera. */
   #cam { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
   #view { flex: 1; min-height: 0; position: relative; border-radius: var(--radius); overflow: hidden; background-color: var(--video); }
-  video, #poster { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* contain, not cover: the whole frame shows, so you see exactly what Gemini gets. */
+  video, #poster { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #zoom { position: absolute; top: var(--gap); right: var(--gap); min-width: var(--tap); padding: 0 12px; font-weight: 600; border-color: var(--focus); z-index: 1; }
   #poster { position: absolute; inset: 0; }
   /* What to do now. Over the last frame after a recording; over black before the first one. */
   #note { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gutter);
@@ -88,6 +90,23 @@
   .row { display: flex; gap: var(--gap); }
   .row > * { flex: 1 1 0; min-width: 0; }
   .file input { display: none; }
+  /* Landscape phone: the wide way to hold it for a whole room. Picture left at full height, controls right. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    body { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: var(--gutter);
+           padding-left: max(var(--gutter), env(safe-area-inset-left)); padding-right: max(var(--gutter), env(safe-area-inset-right)); }
+    h1 { display: none; }
+    #sub { justify-content: flex-end; }
+    #pick, #cam { grid-column: 1 / -1; }
+    #pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #plan { align-self: center; max-height: 100%; }
+    #legend { display: none; }
+    #use { grid-column: 1 / -1; }
+    #cam { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto minmax(0, 1fr); column-gap: var(--gutter); }
+    #view { grid-column: 1; grid-row: 1 / -1; }
+    #spot, #facts, #status, #cam > .switch, #cam > .row { grid-column: 2; }
+    :root { --mini-h: 84px; --tap: 44px; }
+    #cam > .row { align-self: end; }
+  }
   .switch { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); padding: 0 var(--gutter);
             border: 1px solid var(--line); border-radius: var(--radius); }
   .switch input { width: 22px; height: 22px; accent-color: var(--accent); }
@@ -120,6 +139,7 @@
   <div id="view">
     <video id="v" autoplay playsinline muted></video>
     <img id="poster" alt="Last frame sent" hidden>
+    <button id="zoom" hidden></button>
     <div id="note"><p id="noteText"></p><a id="noteTwin" href="/app/" hidden>See it on the Twin</a></div>
   </div>
   <div id="facts">
@@ -139,7 +159,7 @@
 <script>
 const q = new URLSearchParams(location.search);
 const intervalMs = +(q.get('ms') || 1000);   // send a frame every N ms
-const width = +(q.get('w') || 640);          // downscale before upload
+const width = +(q.get('w') || 800);          // downscale before upload: the long side of the frame, landscape or portrait
 const clipS = +(q.get('clip') || 2);         // audio clip length in seconds
 const $ = id => document.getElementById(id);
 const v = $('v'), c = $('c'), ctx = c.getContext('2d');
@@ -314,7 +334,8 @@ async function start() {
   let stream;
   try {
     if (!navigator.mediaDevices) throw new Error('no camera API on this link');
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: withMic });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: withMic });
+    stream = await widest(stream);
   } catch (e) {
     drop();
     if (my !== session) return;
@@ -334,8 +355,45 @@ async function start() {
   loop(my, room);
 }
 
+/* ---- The widest view the phone has, so 1 frame takes in a whole room.
+ * 1. A camera that can zoom out (iPhone: the combined back camera goes to 0.5x): set its zoom to the minimum.
+ * 2. Else a separate ultra-wide back camera, if the phone lists one: switch to it.
+ * The button on the picture steps between the zoom levels found. */
+let zoomTrack = null, zoomSteps = [], zoomAt = 0;
+
+async function widest(stream) {
+  let track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (!(caps.zoom && caps.zoom.min < 1)) {
+    try {
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const wide = cams.find(d => /ultra.?wide/i.test(d.label) && /back|rear|environment/i.test(d.label)) || cams.find(d => /ultra.?wide/i.test(d.label));
+      if (wide && wide.deviceId !== track.getSettings().deviceId) {
+        const s2 = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: wide.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+        track.stop(); stream.removeTrack(track); track = s2.getVideoTracks()[0]; stream.addTrack(track);
+      }
+    } catch (e) { /* keep the camera we have */ }
+  }
+  const c2 = track.getCapabilities ? track.getCapabilities() : {};
+  zoomTrack = track; zoomSteps = []; zoomAt = 0;
+  if (c2.zoom && c2.zoom.max > c2.zoom.min) {
+    zoomSteps = [c2.zoom.min, 1, 2].filter((z, k, all) => z >= c2.zoom.min && z <= c2.zoom.max && all.indexOf(z) === k);
+    await setZoom(0);
+  }
+  show($('zoom'), zoomSteps.length > 1);
+  return stream;
+}
+
+async function setZoom(k) {
+  zoomAt = k % zoomSteps.length;
+  try { await zoomTrack.applyConstraints({ advanced: [{ zoom: zoomSteps[zoomAt] }] }); } catch (e) { /* the phone refused: leave it */ }
+  $('zoom').textContent = zoomSteps[zoomAt] + '×';
+}
+$('zoom').onclick = () => setZoom(zoomAt + 1);
+
 function stop() {
   session++;
+  show($('zoom'), false);
   const wasRunning = running;
   running = false; stopAudio();
   $('level').style.width = '0';
@@ -408,8 +466,8 @@ async function loop(my, room) {
   while (running && my === session) {
     const t0 = performance.now();
     if (v.videoWidth) {
-      const h = Math.round(v.videoHeight * width / v.videoWidth);
-      c.width = width; c.height = h; ctx.drawImage(v, 0, 0, width, h);
+      const k = width / Math.max(v.videoWidth, v.videoHeight), w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k);
+      c.width = w; c.height = h; ctx.drawImage(v, 0, 0, w, h);
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.6));
       if (my !== session) return;   // stopped or changed room during the capture: send nothing
       try { const j = await postFrame(room, blob); if (my !== session) return; sent++; report(j, Math.round(performance.now() - t0)); }
