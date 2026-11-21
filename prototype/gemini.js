@@ -12,8 +12,9 @@
   const FAST = { thinking: 'low' }, DEEP = { deep: true };
 
   /* cfg = {key, model, deep}. Two Gemini 4 models, one job each:
-   *   cfg.model (Hydrogen) = fast reads: room photos, PA text. Low thinking level: about 6 s for a photo.
-   *   cfg.deep (Neon or Carbon) = slow reasoning: floor plan -> layout, fix proposals. Default thinking level.
+   *   cfg.model (Hydrogen) = fast work while people wait: room photos, PA text, fix proposals. Low thinking level.
+   *   cfg.deep (Neon or Carbon) = slow reasoning, done before the demo: floor plan -> layout. Default thinking level.
+   *   (Fix proposals ran on Neon first: no answer after 60 s. The sim scores every proposal, so a fast model is enough.)
    * parts = Gemini "parts" array. opts = {deep, thinking}. Returns the reply text. */
   async function call(cfg, parts, wantJson, opts) {
     if (!cfg.key) throw new Error('no API key');
@@ -163,6 +164,20 @@
   const observe = async (cfg, files, layout, onStatus) =>
     layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)), await Promise.all(files.map(shrink)), onStatus, FAST);
 
+  /* The same, for a camera frame of a room that is KNOWN (the phone user picked it): Gemini does not
+   * have to find the room, only to read it. The result always names that room. */
+  async function observeRoom(cfg, files, layout, roomName) {
+    const r = layout.rooms.find(x => x.name === roomName);
+    const many = files.length > 1 ? 'The ' + files.length + ' pictures are frames of 1 video of the same room, taken a few seconds apart from different places. Use all of them: count each person and each piece of furniture once. ' : '';
+    const hint = many + 'The input shows the room "' + roomName + '": x ' + r.x + ', y ' + r.y + ', w ' + r.w + ', h ' + r.h +
+      '. Its floor cells are x ' + (r.x + 1) + '..' + (r.x + r.w - 2) + ', y ' + (r.y + 1) + '..' + (r.y + r.h - 2) +
+      '. Do not choose another room. Put every object on those floor cells, spread over the room as you see them.';
+    const obs = await layoutFrom(cfg, OBSERVE_RULES + '\n' + JSON.stringify(geometryOf(layout)) + '\n' + hint, await Promise.all(files.map(shrink)), () => {}, FAST);
+    const first = (Array.isArray(obs.rooms) && obs.rooms[0]) || {};
+    obs.rooms = [Object.assign({}, first, { name: roomName })];
+    return obs;
+  }
+
   /* Layout "notes" as shown to the user: what Gemini saw or heard. */
   const notesOf = layout => (Array.isArray(layout.notes) ? layout.notes : []).slice(0, NOTES_MAX).map(n => String(n).slice(0, NOTE_LEN));
 
@@ -194,11 +209,11 @@
       'A deterministic simulator will score each proposal, so be specific. reason = 1 short sentence.\n' +
       'Return JSON: {"proposals":[...]}\n' +
       'Layout: ' + JSON.stringify(ctx.layout) + '\nFire start points (tick,x,y): ' + JSON.stringify(ctx.ignitions) +
-      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true, DEEP);
+      '\nBaseline result: ' + JSON.stringify(ctx.baseline) }], true, FAST);
     const list = parseJson(text).proposals;
     return (Array.isArray(list) ? list : []).filter(p => p && typeof p === 'object').slice(0, 3)
       .map(p => Object.assign({}, p, { reason: String(p.reason || '').slice(0, 200) }));
   }
 
-  window.Gemini = { call, layoutFromMedia, observe, notesOf, announce, fallbackAnnouncement, proposeFixes };
+  window.Gemini = { call, layoutFromMedia, observe, observeRoom, notesOf, announce, fallbackAnnouncement, proposeFixes };
 })();

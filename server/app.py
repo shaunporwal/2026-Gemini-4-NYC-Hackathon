@@ -18,13 +18,15 @@ import asyncio
 import csv
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 import perception as P
 from geometry import MapInfo, jpeg_aspect
@@ -42,6 +44,16 @@ AUDIO_TTL_S = float(os.getenv("AUDIO_TTL_S", "10"))  # an alarm/scream stays in 
 
 METRICS = HERE / "metrics.csv"
 EVAL_DIR = HERE / "eval_frames"
+PUBLIC_URL_FILE = HERE / ".public_url"  # written when the tunnel starts: the https address phones use
+
+
+def phone_url() -> str | None:
+    """Link to the phone page, or None if no tunnel address is known."""
+    try:
+        base = PUBLIC_URL_FILE.read_text().strip()
+    except OSError:
+        return None
+    return base.rstrip("/") + "/camera" if base.startswith("https://") else None
 
 MAP = MapInfo(MAP_PATH)
 latest_frame: dict[str, tuple[bytes, float]] = {}
@@ -50,6 +62,10 @@ cams: dict[str, dict] = {}  # per-camera working state
 workers: dict[str, asyncio.Task] = {}
 observations: dict[str, dict] = {}  # latest Observation per cameraId
 clients: set[WebSocket] = set()
+rooms: list[str] = []  # room names of the twin on screen (prototype/). A room name also works as a camera id.
+twin_layout: dict = {}  # the presenter's whole layout JSON, passed on as is to copies of the twin page (GET /layout)
+LAYOUT_MAX_BYTES = 300_000
+plan: dict = {}  # floor plan of that twin for the phone's room picker: {width, height, rooms: [{name, x, y, w, h}]}
 
 
 def ensure_cam(cam_id: str):
@@ -75,7 +91,8 @@ def refresh_pose(cam_id: str):
     """Recompute which exits a camera sees (after load or after the browser moves it)."""
     c = cams[cam_id]
     c["exits"] = MAP.visible_exits(cam_id)
-    c["questions"] = P.build_questions(bool(c["exits"]))
+    # A room of the twin (not a map camera) has doors: always ask if the way out is blocked.
+    c["questions"] = P.build_questions(bool(c["exits"]) or cam_id not in MAP.cameras)
 
 
 def observation(cam_id: str) -> dict:
@@ -223,6 +240,14 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def never_cache(request: Request, call_next):
+    """Pages change during the day: a phone must not keep an old copy of the camera page or the twin."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.post("/frame/{cam_id}")
 async def post_frame(cam_id: str, request: Request):
     jpeg = await request.body()
@@ -233,7 +258,8 @@ async def post_frame(cam_id: str, request: Request):
     c["stream"]["lastFrame"] = now
     c["stream"]["frames"] += 1
     events[cam_id].set()
-    return {"cameraId": cam_id, "known": cam_id in MAP.cameras, "peopleCount": c["count"],
+    return {"cameraId": cam_id, "known": cam_id in rooms or cam_id in MAP.cameras, "timestamp": int(now * 1000),
+            "peopleCount": c["count"], "density": P.DENSITY[max(0, min(4, round(c["crowding"])))],
             "hazard": c["hazard"], "ok": c["stream"]["ok"], "latencyMs": c["stream"]["latencyMs"],
             "error": c["stream"]["error"]}
 
@@ -253,6 +279,90 @@ async def post_audio(cam_id: str, request: Request):
         return {"cameraId": cam_id, **a}
     except Exception as e:
         return {"cameraId": cam_id, "error": f"{type(e).__name__}: {e}"[:300]}
+
+
+def is_local(request: Request) -> bool:
+    """True only for a request made on this machine, not one that came in through a tunnel or proxy."""
+    host = request.client.host if request.client else ""
+    forwarded = any(h in request.headers for h in ("cf-connecting-ip", "x-forwarded-for", "forwarded"))
+    return host in ("127.0.0.1", "::1") and not forwarded
+
+
+@app.post("/twin")
+async def post_twin(request: Request):
+    """From the Fire Twin page on this machine: the API key (kept in memory) and the room names of the twin."""
+    if not is_local(request):
+        return JSONResponse({"error": "local requests only"}, status_code=403)
+    body = await request.json()
+    if isinstance(body.get("key"), str) and body["key"].strip():   # an empty key never clears a working one
+        P.set_key(body["key"])
+    p = body.get("plan")
+    if isinstance(p, dict) and isinstance(p.get("rooms"), list):
+        num = lambda v: float(v) if isinstance(v, (int, float)) else 0.0
+        plan.clear()
+        plan.update(width=num(p.get("width")), height=num(p.get("height")), rooms=[
+            {"name": str(r.get("name"))[:60], **{k: num(r.get(k)) for k in ("x", "y", "w", "h")}}
+            for r in p["rooms"][:200] if isinstance(r, dict)])
+        rooms[:] = [r["name"] for r in plan["rooms"]]
+    lay = body.get("layout")
+    if isinstance(lay, dict) and len(json.dumps(lay)) <= LAYOUT_MAX_BYTES:
+        twin_layout.clear()
+        twin_layout.update(lay)
+    return {"ready": P.has_key(), "rooms": len(rooms)}
+
+
+@app.get("/layout")
+async def get_layout():
+    """The presenter's layout, for a copy of the twin page opened somewhere else."""
+    if not twin_layout:
+        return JSONResponse({"error": "no layout yet"}, status_code=404)
+    return JSONResponse(twin_layout, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/frame/{cam_id}/latest.jpg")
+async def latest_jpeg(cam_id: str):
+    """The newest frame of one camera, for the live view on the twin page."""
+    if cam_id not in latest_frame:
+        return JSONResponse({"error": "no frame"}, status_code=404)
+    return Response(latest_frame[cam_id][0], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+CAPTURE_FILE = re.compile(r"^\d+\.jpg$")
+CAPTURES_PER_ROOM = 12
+
+
+@app.get("/captures")
+async def list_captures():
+    """Saved frames (SAVE_FRAMES=1), newest first, for each room: [{file, t}] where t is ms since 1970."""
+    out = {}
+    if EVAL_DIR.is_dir():
+        for d in sorted(p for p in EVAL_DIR.iterdir() if p.is_dir()):
+            files = sorted((f.name for f in d.iterdir() if CAPTURE_FILE.match(f.name)), reverse=True)[:CAPTURES_PER_ROOM]
+            if files:
+                out[d.name] = [{"file": f, "t": int(f[:-4])} for f in files]
+    return {"saving": SAVE_FRAMES, "rooms": out}
+
+
+@app.get("/captures/{room}/{file}")
+async def get_capture(room: str, file: str):
+    """One saved frame. Only a file name of digits + .jpg inside a room folder that exists."""
+    folder = next((p for p in EVAL_DIR.iterdir() if p.is_dir() and p.name == room), None) if EVAL_DIR.is_dir() else None
+    if not folder or not CAPTURE_FILE.match(file) or not (folder / file).is_file():
+        return JSONResponse({"error": "no such capture"}, status_code=404)
+    return FileResponse(folder / file, media_type="image/jpeg")
+
+
+@app.get("/qr.svg")
+async def qr_svg():
+    """QR code of the phone link, for the big screen."""
+    import io
+    import segno
+    url = phone_url()
+    if not url:
+        return JSONResponse({"error": "no public address"}, status_code=404)
+    out = io.BytesIO()
+    segno.make(url, error="m").save(out, kind="svg", scale=8, border=2, dark="#0c0f14", light="#ffffff")
+    return Response(out.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 @app.websocket("/ws")
@@ -294,6 +404,12 @@ async def camera_page():
 
 @app.get("/")
 async def index():
-    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated",
+    return {"map": MAP.name, "mode": "baseline" if BASELINE else "gated", "ready": P.has_key(), "rooms": rooms, "plan": plan,
+            "phoneUrl": phone_url(),
             "cameras": {k: {"name": v["name"], "page": f"/camera?id={k}"} for k, v in MAP.cameras.items()},
             "ws": "/ws", "observations": "/observations"}
+
+
+# The twin page itself (prototype/), for people who are not at the demo machine: <address>/app/
+# A remote viewer has no API key, so the Gemini steps in the page are off; the live feed still shows.
+app.mount("/app", StaticFiles(directory=HERE.parent / "prototype", html=True), name="twin")

@@ -3,3 +3,4 @@ uvicorn[standard]
 google-genai>=3.2.0
 pydantic>=2
 httpx
+segno

@@ -7,6 +7,10 @@
   const ACTIVE = 0, OUT = 1, DOWN = 2;
   const DT = 0.5;            // seconds per tick
   const DOSE_LIMIT = 45;     // smoke dose at which a person goes down
+  /* Furniture from layout.objects (seen by a camera). These types block walking; all furniture burns faster
+   * than bare floor. Chairs and plants are drawn but people walk past them. */
+  const BLOCKING = { table: 1, desk: 1, sofa: 1, counter: 1, bar: 1, stage: 1, shelf: 1, screen: 1 };
+  const FURNITURE_FUEL = 2;      // fire spreads onto a furniture cell this many times faster
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
   function mulberry32(seed) {
@@ -155,11 +159,15 @@
         waiting: 0, peak: 0, people: new Set(), waitSeconds: 0, maxWaitSeconds: 0, smokeSeconds: 0
       }));
 
+      /* furniture = every furniture cell (for the views). furn[i] = 1: a BLOCKING piece stands on this floor cell,
+       * so nobody can walk there. Cells next to a door or exit stay clear. One rule for drawing, spawning and routing. */
+      this.furn = new Uint8Array(N);
+      const nearOpening = new Uint8Array(N);
+      for (const o of this.openings) for (const c of o.cells) { nearOpening[c] = 1; for (const e of this.adj[c]) nearOpening[e.j] = 1; }
       this.furniture = furnitureCells(layout, this.type);
       if (this.furniture.length) {
-        this.walkable = grid ? grid.walkable.slice() : new Uint8Array(N).fill(1);
         for (const { i, object } of this.furniture) {
-          if (object.type !== 'stage') this.walkable[i] = 0;
+          if (BLOCKING[object.type] && !nearOpening[i]) this.furn[i] = 1;
         }
       }
 
@@ -194,6 +202,15 @@
       this.lastProgress = 0;
       this.stuck = 0;
       this.done = false;
+
+      /* A camera's furniture is rough. If it walls people in who had a route without it, do not use it. */
+      if (this.furn.some(v => v)) {
+        const walledIn = () => { this.computeDist(); return this.people.filter(p => this.trapped(p)).length; };
+        const withFurniture = walledIn(), kept = this.furn;
+        this.furn = new Uint8Array(N);
+        if (withFurniture <= walledIn()) this.furn = kept; else this.furnitureDropped = true;
+        this.dirty = true;
+      }
       this.computeDist();
     }
 
@@ -208,7 +225,7 @@
     }
 
     solid(i) { const t = this.type[i]; return t === WALL || t === LOCKED; }       // blocks fire, smoke, people
-    passable(i) { return !this.solid(i) && !this.fire[i] && (!this.walkable || this.walkable[i] !== 0); }                        // a person can stand here
+    passable(i) { return !this.solid(i) && !this.fire[i] && !this.furn[i] && (!this.walkable || this.walkable[i] !== 0); }   // a person can stand here
     canStep(e) { return this.passable(e.j) && (e.a < 0 || (this.passable(e.a) && this.passable(e.b))); }
 
     ignite(x, y) {
@@ -242,7 +259,7 @@
         if (fire[i] < 65535) fire[i]++;
         for (const e of adj[i]) {
           if (e.a >= 0) break;                                  // straight neighbors only
-          if (!fire[e.j] && !this.solid(e.j) && this.randFire() < this.fireRate) add.push(e.j);
+          if (!fire[e.j] && !this.solid(e.j) && this.randFire() < this.fireRate * (this.furn[e.j] ? FURNITURE_FUEL : 1)) add.push(e.j);
         }
       }
       for (const j of add) { fire[j] = 1; this.dirty = true; }

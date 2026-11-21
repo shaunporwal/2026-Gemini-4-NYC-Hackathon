@@ -3,7 +3,7 @@
 Implementation is merged. This document records the original PR scope and checks. For the current UI including queues and awareness replay, use [the demo guide](../../prototype/README.md).
 
 
-Status: in progress
+Status: done
 
 Branch: `shaun/video-to-twin`
 
@@ -14,7 +14,7 @@ Show Gemini's multimodal input on stage: a phone walkthrough video of the venue 
 ## Scope
 
 In: `prototype/gemini.js`, `prototype/app.js`, `prototype/index.html`, `prototype/render3d.js`, `prototype/vendor/`, `prototype/layouts.js`, prototype docs, this doc. Also merges `main` (Jacob's `web/` map + voxel scene) into the branch.
-Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (only `applyObservation` is added there). Managed Agent sweep. Live camera feed.
+Out: changes to `web/`. (Scope grew during the day: `server/` is now adapted and run; `sim.js` gained `applyObservation` and furniture as obstacles + fuel.) Managed Agent sweep. Live camera feed.
 
 ## Design
 
@@ -48,7 +48,17 @@ Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (onl
 - [x] Decisions API (`gemini-decision-1`) called from the browser: works, about 1 s, room choice + crowd level + blocked exit in 1 call (test only, not in the app yet)
 - [x] 2 Gemini 4 models, 1 job each: Hydrogen (photos, PA; thinking low) and Neon (floor plan, fixes). Photo update: 42 s -> 9 s
 - [ ] Room match with reference photos (enrolment), then put Decision 1 in the app as the fast first step
-- [ ] Phone page: several phones send room photos to the twin (phone -> Mac on the venue wifi works)
+- [x] Perception server (Elijah, `server/`) runs on the demo Mac with the real key: Decisions 1.4 s + Hydrogen 6.2 s on the test photo. Key and floor plan come from the twin page (local requests only)
+- [x] Twin listens to the server: "Live camera" table, head count per room before the fire, a camera that sees fire starts the fire (switch in Setup; not tested with real footage)
+- [x] Phone page rebuilt: floor plan with a key number on every room + list, camera starts on confirm, one-photo fallback; tunnel (cloudflared) gives phones HTTPS
+- [x] TLA+ model of the phone page (`specs/`): 3 timing faults found and fixed with a session number
+- [x] Real iPhone streamed frames (Event Bar & Pre-Function, West Booth Lounge); frames saved on the demo Mac in `server/eval_frames/`
+- [x] Live view on the twin (phone frames + the sim's smoke and fire), saved frames you can pick, QR to join; stable public address (Tailscale Funnel); Camera / Twin switch; a phone copy of the twin follows the presenter's layout
+- [x] Camera frames inform the simulation: Gemini reads the newest frame of a known room (furniture, colors, notes) and the furniture goes into the physics: people walk around it, it burns faster. Tested with a real phone frame: 14 items in West Booth Lounge
+- [x] Sound: the server's alarm detection works (synthetic alarm: "alarm", 0.84, 0.9 s) and an alarm heard by a phone starts the fire in that room. Phone microphone fix (audio context made inside the tap) NOT yet confirmed on a real iPhone
+- [x] TLA+ models: phone page, linked chain, app flow with a no-dead-end check (`specs/`)
+- [ ] Real iPhone: microphone clips arrive; several phones at once
+- [ ] Evidence table: same fire on the plan-only twin and on the camera-informed twin
 - [ ] Test with a real key: walkthrough video -> update this twin
 - [ ] Test with a real key: plan + video -> new twin
 - [ ] Record the venue walkthrough (30-60 s, show each door and exit)
@@ -67,7 +77,9 @@ Out: changes to `web/`, `server/`, `render.js`, and the physics in `sim.js` (onl
 - The API key is typed into the page. Root `CLAUDE.md` says Gemini is only called from `server/`; that rule covers `web/`, and this prototype does not follow it.
 - Setup dialog is taller than a 390x664 phone screen now; it scrolls inside with no scroll bar.
 
-- Furniture is drawn only: the simulator ignores `objects`, so people walk through tables.
+- Furniture positions are Gemini's estimate from 1 frame: rough. If furniture would wall people in, the sim drops it for that run and says so.
+- Head counts from the fast model move a lot between frames of the same room (2, 6, 12, 13 seen).
+- With the Setup switch on, any alarm-like sound or fire-like picture starts a fire: a false alarm on stage is possible.
 - 3D colors and furniture from a real Gemini reply were tested with 1 photo only. `wallColor` from 1 room colors the walls of the whole building.
 - Room matching from room names alone fails (1 of 1 photo wrong, with confidence 0.57-0.71).
 - Neon for floor plan -> twin and for fix proposals is untested.

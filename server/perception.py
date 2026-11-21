@@ -22,10 +22,29 @@ DECISION_MODEL = os.getenv("DECISION_MODEL", "gemini-decision-1")
 VISION_MODEL = os.getenv("VISION_MODEL", "gemini-4-hydrogen")
 THINKING = os.getenv("THINKING", "low")  # set to "" if the model rejects thinking_level
 
-client = genai.Client(
-    api_key=os.environ["GEMINI_API_KEY"],
-    http_options={"api_version": "v1beta"},  # Decisions API lives on v1beta
-)
+# The key comes from GEMINI_API_KEY, or at run time from the Fire Twin page on this machine (POST /twin).
+# It stays in memory: never written to disk, never returned by an endpoint.
+_key = os.getenv("GEMINI_API_KEY", "").strip()
+_client = None
+
+
+def set_key(key: str):
+    global _key, _client
+    if key.strip() != _key:
+        _key, _client = key.strip(), None
+
+
+def has_key() -> bool:
+    return bool(_key)
+
+
+def get_client():
+    global _client
+    if not _key:
+        raise RuntimeError("no API key yet: open the Fire Twin page on the server machine")
+    if _client is None:
+        _client = genai.Client(api_key=_key, http_options={"api_version": "v1beta"})  # Decisions API lives on v1beta
+    return _client
 
 CONTEXT = "A frame from a fixed camera in an indoor event venue (a hackathon hall)."
 
@@ -81,7 +100,7 @@ def build_questions(has_exit: bool) -> dict:
 def run_decisions(jpeg: bytes, questions: dict) -> dict:
     """One Decisions API call answering every question for this frame."""
     t0 = time.time()
-    result = client.decisions.create(
+    result = get_client().decisions.create(
         model=DECISION_MODEL,
         input=[
             {"type": "text", "text": CONTEXT},
@@ -135,7 +154,7 @@ def run_hydrogen(jpeg: bytes) -> dict:
     cfg = dict(response_mime_type="application/json", response_schema=Positions)
     if THINKING:
         cfg["thinking_config"] = types.ThinkingConfig(thinking_level=THINKING)
-    r = client.models.generate_content(
+    r = get_client().models.generate_content(
         model=VISION_MODEL,
         contents=[types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"), CONTEXT, POSITIONS_PROMPT],
         config=types.GenerateContentConfig(**cfg),
@@ -162,7 +181,7 @@ AUDIO_QUESTIONS = {
 def run_audio(wav: bytes) -> dict:
     """One Decisions call on a short audio clip (16 kHz mono WAV from camera.html)."""
     t0 = time.time()
-    result = client.decisions.create(
+    result = get_client().decisions.create(
         model=DECISION_MODEL,
         input=[
             {"type": "text", "text": "A short audio clip from a microphone in an indoor event venue."},
