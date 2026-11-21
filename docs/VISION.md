@@ -30,20 +30,25 @@ door B."
    side-by-side outcome.
 
 ## Scope for this hackathon (6 h, 4 people)
+**Entry rules:** media (camera frames + audio) is the core input, and we use **at least two Gemini 4 models, each with one clear job**
+(see `docs/DECISIONS.md` #19). It is a **planning / preparation tool**: the fire is simulated, started by a tap.
+
 **In**
 - JSON-defined map of any size (single floor), voxel 3D render (three.js)
 - Everything physical in the grid: wall, floor, exit, table, chair, person (+ door, void)
 - Camera objects with orientation, visible-cell cone (walls occlude), draggable/rotatable in 3D
 - Grid fire + smoke spread (model details owned by the fire teammate — TBD)
 - Individual crowd agents following a distance field to exits
-- Gemini live-feed interpretation → per-camera people counts (owned by the Gemini teammate)
+- **Adaptive evacuation routes**: the distance field is recomputed as fire and smoke spread and when a camera reports an exit blocked
+- **Floor plan from a photo**: Gemini turns a photo of the venue's evacuation map into a map JSON
+- Gemini live-feed interpretation (`server/`): per-camera people count, approximate floor positions, density, fire/smoke, blocked exits, alarm/screaming from the mic
 - Live evac/casualty stats, bottleneck detection, scenario comparison
 
 **Out (for now)**
 - In-app map editor (JSON only for v1; editor is a stretch goal)
 - Multi-floor buildings / stairs
 - Physically accurate fire modelling (CFD, CO toxicity, etc.)
-- Pixel-accurate person localisation from video
+- Pixel-accurate person localisation from video (positions are an approximate ground-plane projection)
 
 **Stretch**
 - In-app paint editor for the map

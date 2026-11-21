@@ -18,6 +18,7 @@
   instantly to taps.
 - **The server is thin**: it owns the Gemini API key, watches the camera feeds, and pushes
   `Observation` messages to the browser over WebSocket. It never runs the simulation.
+  Phones post frames and audio to it; the browser sends it camera poses when a camera is moved (`server/README.md`).
 - **All cross-module types are defined in [`CONTRACTS.md`](CONTRACTS.md)** and implemented in
   `web/src/shared/types.ts`. That's the contract between teammates.
 

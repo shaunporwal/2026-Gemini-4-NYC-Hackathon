@@ -28,7 +28,7 @@ web/             Vite + TypeScript + three.js app (the whole simulation runs her
   src/feed/      WebSocket client for Gemini observations (+ mock)
   src/stats/     evac/casualty stats, bottlenecks, scenario compare
   src/ui/        HUD and controls
-server/          Thin backend: Gemini live-feed interpretation → Observations over WebSocket
+server/          Python/FastAPI: phone cameras → Gemini → Observations over WebSocket (see server/README.md)
 ```
 
 ## Commands
@@ -53,7 +53,9 @@ Load another map with `?map=/maps/cafe.json`. `web/src/shared/types.ts` must sta
 - **Per-cell data is typed arrays** of length `width*height`, not arrays of objects.
 - **No `Math.random()` in sim code**. Use `state.rng()` so scenario compares are deterministic.
 - **Map size is dynamic.** Never hardcode width/height; read them from `MapModel`.
-- **No API keys in `web/`.** Gemini is only called from `server/`.
+- **No API keys in `web/`.** Gemini is only called from `server/` (key in `server/.env`, gitignored).
+- **Entry rule: at least two Gemini 4 models, each with one clear job**, and media as the core input.
+  Don't remove a model or blur its job without telling the team (`docs/DECISIONS.md` #19).
 - **`main` must always run.** Run `npm run build` before committing. Keep the demo map working.
 - **Hackathon speed.** Prefer simple, working, readable code over abstractions. No new
   dependencies without a good reason. No test frameworks unless asked.
