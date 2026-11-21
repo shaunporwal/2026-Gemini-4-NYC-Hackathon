@@ -30,31 +30,35 @@ VARIABLES twinRooms,   \* rooms of the presenter's layout
           fire,        \* the twin's fire has started
           fireRoom,    \* room where a camera started the fire, or None
           counted,     \* rooms whose head count came from a camera
-          frozen       \* history: `counted` at the moment the fire started
+          frozen,      \* history: `counted` at the moment the fire started
+          held,        \* the presenter pressed Freeze: phones must not change the twin
+          heldAt       \* history: `counted` at the moment Freeze was pressed
 
-vars == <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen>>
+vars == <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen, held, heldAt>>
 
 Init == /\ twinRooms = Default /\ plan = Default
         /\ phoneRoom = None /\ phoneSays = "none" /\ sendWasGood = TRUE
         /\ inbox = {} /\ wire = {} /\ fire = FALSE /\ fireRoom = None /\ counted = {} /\ frozen = {}
+        /\ held = FALSE /\ heldAt = {}
 
 (* Presenter loads a layout: a new sim, and the page sends the new plan to the server. *)
 LoadLayout(S) ==
     /\ S \in Layouts
     /\ twinRooms' = S /\ plan' = S
     /\ fire' = FALSE /\ fireRoom' = None /\ counted' = {} /\ frozen' = {}
-    /\ UNCHANGED <<phoneRoom, phoneSays, sendWasGood, inbox, wire>>
+    /\ heldAt' = {}
+    /\ UNCHANGED <<phoneRoom, phoneSays, sendWasGood, inbox, wire, held>>
 
 (* Someone opens a second copy of the twin page. As first wired, every copy sent its own
    default layout to the server. Now only the presenter's page does. *)
 ViewerOpens ==
     /\ plan' = IF Fixed THEN plan ELSE Default
-    /\ UNCHANGED <<twinRooms, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen>>
+    /\ UNCHANGED <<twinRooms, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen, held, heldAt>>
 
 PhonePick(r) ==
     /\ r \in plan
     /\ phoneRoom' = r /\ phoneSays' = "none"
-    /\ UNCHANGED <<twinRooms, plan, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen>>
+    /\ UNCHANGED <<twinRooms, plan, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen, held, heldAt>>
 
 (* The phone sends a frame. The server's answer says if the room is still on the plan.
    As first wired, the phone always said "ok". *)
@@ -63,35 +67,42 @@ PhoneSend ==
     /\ inbox' = inbox \cup {phoneRoom}
     /\ sendWasGood' = (phoneRoom \in twinRooms)
     /\ phoneSays' = IF Fixed /\ phoneRoom \notin plan THEN "pickAgain" ELSE "ok"
-    /\ UNCHANGED <<twinRooms, plan, phoneRoom, wire, fire, fireRoom, counted, frozen>>
+    /\ UNCHANGED <<twinRooms, plan, phoneRoom, wire, fire, fireRoom, counted, frozen, held, heldAt>>
 
 (* Gemini reads the newest frame of a room. It may or may not see fire. *)
 ServerReads(r, sawFire) ==
     /\ r \in inbox
     /\ inbox' = inbox \ {r}
     /\ wire' = wire \cup {[room |-> r, fire |-> sawFire]}
-    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, fire, fireRoom, counted, frozen>>
+    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, fire, fireRoom, counted, frozen, held, heldAt>>
 
 (* The twin handles an Observation. Not one of its rooms: ignore. Before the fire: take the head
    count. Sees fire and no fire yet: start the fire in that room. *)
 TwinHandles(o) ==
     /\ o \in wire
     /\ wire' = wire \ {o}
-    /\ IF o.room \notin twinRooms \/ fire
+    /\ IF o.room \notin twinRooms \/ fire \/ held
        THEN UNCHANGED <<fire, fireRoom, counted, frozen>>
        ELSE /\ counted' = counted \cup {o.room}
             /\ fire' = o.fire
             /\ fireRoom' = IF o.fire THEN o.room ELSE None
             /\ frozen' = IF o.fire THEN counted' ELSE frozen
-    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox>>
+    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, held, heldAt>>
 
 (* A person clicks the map to start the fire. *)
 ClickFire ==
     /\ ~fire
     /\ fire' = TRUE /\ frozen' = counted
-    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fireRoom, counted>>
+    /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fireRoom, counted, held, heldAt>>
 
-Next == \/ \E S \in Layouts : LoadLayout(S)
+(* The presenter cuts the phones off from the twin (Freeze), or lets them back (Resume). *)
+Freeze == /\ ~held /\ held' = TRUE /\ heldAt' = counted
+          /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen>>
+Resume == /\ held /\ held' = FALSE
+          /\ UNCHANGED <<twinRooms, plan, phoneRoom, phoneSays, sendWasGood, inbox, wire, fire, fireRoom, counted, frozen, heldAt>>
+
+Next == \/ Freeze \/ Resume
+        \/ \E S \in Layouts : LoadLayout(S)
         \/ ViewerOpens
         \/ \E r \in Rooms : PhonePick(r)
         \/ PhoneSend
@@ -115,6 +126,9 @@ FireRoomIsOnScreen == fireRoom # None => fireRoom \in twinRooms
 
 \* 4. Head counts do not change after the fire starts (the same fire must replay the same way).
 CountsFrozenInFire == fire => counted = frozen
+
+\* 6. While the twin is frozen, phones do not change it (frames already on the way included).
+FrozenTwinIsStill == held => counted = heldAt
 
 \* 5. A camera count only goes to a room of the layout on screen.
 CountsAreOnScreen == counted \subseteq twinRooms

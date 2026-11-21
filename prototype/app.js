@@ -7,7 +7,9 @@
   const KEY_STORE = 'fireTwinGeminiKey', INFORMED_STORE = 'fireTwinInformed';
   const PA_IDLE = 'Click the floor to start a fire. Click a door or exit to lock or unlock it.';
   const FIX_WAIT_S = 20;   // Find fix never waits longer than this for Gemini
-  const DETAIL_S = 30;   // a room is rebuilt from its camera at most this often
+  const DETAIL_S = 12;   // while its phone streams, a room is rebuilt from the camera this often
+  const DETAIL_ROOMS = 3;   // rooms that Gemini reads at the same time (1 for each phone)
+  const TWIN_LIVE = 'Freeze twin', TWIN_FROZEN = 'Resume live';
   const LIVE_STALE_S = 5, LIVE_STOPPED = 'stopped', LIVE_NONE = 'No phone is sending. Open the phone link, pick a room, start the camera.';
   const FEED_ON = 'phones: on', FEED_OFF = 'phones: off';
   const KEY_SAVED = '· saved in this tab. Changes here apply at once.', KEY_MISSING = '· none. The Gemini steps are off.';
@@ -15,7 +17,7 @@
 
   /* plan = the layout as loaded (floor plan only). layout = the same building after the phones changed it.
    * seen = the rooms a phone changed. Every run on `layout` is also run on `plan`: the gap is what the cameras add. */
-  const state = { layout: null, plan: null, seen: new Set(), label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
+  const state = { layout: null, plan: null, seen: new Set(), frozen: false, label: '', sim: null, running: false, lastIgn: [], fix: null, annKey: '', annSeq: 0, acc: 0, last: 0 };
   /* Three views of the same sim: 2D canvas, 3D voxels, live phone cameras. Same interface; each starts on first use. */
   const VIEWS = {
     '2d': { canvas: 'cv', make: window.FireRender },
@@ -23,7 +25,7 @@
     'live': { canvas: 'liveView', make: { create: (node, wrap) => window.FireRenderLive.create(node, wrap,
       { cameras: () => [...live.values()], frameUrl: FEED.frameUrl, qrUrl: FEED.qrUrl, info: FEED.info,
         captures: FEED.captures, captureUrl: FEED.captureUrl,
-        rebuild: (room, urls) => rebuildRoom(room, urls), busy: () => detail.busy }) } }
+        rebuild: (room, urls) => rebuildRoom(room, urls), busy: () => detail.busy.size > 0 }) } }
   };
   let view = null;
   let comparison = null;
@@ -148,24 +150,26 @@
 
   /* A camera frame rebuilds its room: Gemini reads the newest frame (furniture, colors, blocked doors, notes)
    * and the result goes into the layout, so the sim itself changes: people walk around the furniture and it burns.
-   * Presenter only (the key is here), before the fire only, one room at a time, each room at most every DETAIL_S. */
-  const detail = { busy: false, at: new Map() };
+   * Presenter only (the key is here), before the fire only, each room at most every DETAIL_S.
+   * Rooms are read side by side (1 for each phone), never the same room twice at once. */
+  const detail = { busy: new Set(), at: new Map() };
   /* urls = saved frames a person chose (the frames of a video). Without urls: the newest live frame, on a timer. */
   async function rebuildRoom(roomName, urls) {
     const asked = !!urls, no = why => { if (asked) log('Rebuild ' + roomName + ': ' + why); };
     if (!state.layout.rooms.some(r => r.name === roomName)) return no('this room is not in the layout on screen.');
     if (!FEED.presenter || !cfg().key) return no('Gemini reads frames on the presenter\'s laptop only.');
-    if (detail.busy) return no('Gemini is reading another room. Try again in a few seconds.');
+    if (detail.busy.has(roomName)) return no('Gemini is reading this room now. Try again in a few seconds.');
+    if (!asked && (state.frozen || detail.busy.size >= DETAIL_ROOMS)) return;
     if (state.sim.alarmTick >= 0) return no('press Reset first. The layout does not change during a fire.');
     if (!asked && performance.now() - (detail.at.get(roomName) || -Infinity) < DETAIL_S * 1000) return;
-    detail.busy = true; detail.at.set(roomName, performance.now());
+    detail.busy.add(roomName); detail.at.set(roomName, performance.now());
     try {
       urls = urls || [FEED.frameUrl(roomName)];
       if (asked) log('Gemini: reading ' + urls.length + ' frame' + (urls.length > 1 ? 's' : '') + ' of ' + roomName + '…');
       const files = await Promise.all(urls.map(async (u, k) => new File([await (await fetch(u)).blob()], roomName + '-' + k + '.jpg', { type: 'image/jpeg' })));
       const obs = await G.observeRoom(cfg(), files, state.layout, roomName);
       const res = F.applyObservation(state.layout, obs);
-      if (!res || state.sim.alarmTick >= 0) return;            // the fire started while Gemini was reading: keep the layout
+      if (!res || state.sim.alarmTick >= 0 || (!asked && state.frozen)) return;   // a fire started, or the twin was frozen, while Gemini was reading: keep the layout
       const live1 = live.get(roomName), room = res.layout.rooms.find(r => r.name === roomName);
       if (live1 && !asked) room.people = live1.peopleCount;    // the feed's count is newer than this frame's
       state.layout = res.layout;
@@ -176,7 +180,7 @@
       reset();
       const n = (state.layout.objects || []).filter(o => o.x >= room.x && o.x < room.x + room.w && o.y >= room.y && o.y < room.y + room.h).length;
       log('Gemini rebuilt ' + roomName + ' from ' + (asked ? urls.length + ' saved frame' + (urls.length > 1 ? 's' : '') : 'the camera') + ': ' + room.people + ' people, ' + n + ' furniture items.' + (state.sim.furnitureDropped ? ' They blocked the way out, so the sim does not use them.' : ''));
-    } catch (e) { log('Room read: ' + e.message); } finally { detail.busy = false; }
+    } catch (e) { log('Room read: ' + e.message); } finally { detail.busy.delete(roomName); }
   }
 
   /* One camera update. Before the fire: its head count goes into the twin. A camera that sees fire starts the fire. */
@@ -188,6 +192,7 @@
     marks.set(o.cameraId, performance.now());
     if (said(before) !== said(o)) log('Phone in ' + o.cameraId + ': ' + o.peopleCount + ' people, ' + [o.density].concat(o.events).join(', ') + '.');
     showLive();
+    if (state.frozen) return;   // frozen: the feed still shows, the twin keeps its last capture
     const sim = state.sim, idle = sim.alarmTick < 0;
     if (idle && o.stream && o.stream.ok && o.peopleCount !== room.people) {
       room.people = o.peopleCount;
@@ -227,6 +232,15 @@
       if (kept.seen.length) log('Restored the twin with the phones\' changes (' + kept.seen.length + ' room' + (kept.seen.length > 1 ? 's' : '') + ').');
       return true;
     } catch (e) { sessionStorage.removeItem(INFORMED_STORE); return false; }
+  }
+
+  /* Freeze: cut the phones off from the twin. It keeps the last people and furniture, so fires and fixes
+   * can be tested on a fixed copy of the real room. The Live view still shows the feed. Resume: phones update it again. */
+  function setFrozen(on) {
+    state.frozen = on;
+    $('freeze').textContent = on ? TWIN_FROZEN : TWIN_LIVE;
+    $('freeze').setAttribute('aria-pressed', String(on));
+    log(on ? 'Twin frozen: it keeps the last capture. Phones no longer change it.' : 'Twin live: phones update it again.');
   }
 
   function setView(mode) {
@@ -486,6 +500,7 @@
     document.querySelectorAll('#views button').forEach(b => b.addEventListener('click', guarded('View', () => setView(b.dataset.view))));
     on('queueOpening', 'change', () => updateQueues(state.sim));
     on('setup', 'click', () => $('setupDlg').showModal());
+    on('freeze', 'click', () => setFrozen(!state.frozen));
     on('pause', 'click', () => {
       state.running = !state.running && (comparison
         ? !(comparison.baseline.done && comparison.guided.done)
@@ -532,7 +547,7 @@
     // Read the remembered twin BEFORE the default layout loads: loading a layout overwrites what is remembered.
     if (!(FEED.presenter && restoreInformed())) loadLayout(F.clone(LAYOUTS[$('preset').value]));
     if (!FEED.presenter) {   // a copy opened from the feed server (a phone): follow the presenter's layout, link to the camera page
-      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = true;
+      $('pages').hidden = false; $('setup').hidden = $('preset').hidden = $('freeze').hidden = true;
       FEED.layout().then(L => { if (L) loadLayout(L); }).catch(() => {});
     }
     requestAnimationFrame(frame);

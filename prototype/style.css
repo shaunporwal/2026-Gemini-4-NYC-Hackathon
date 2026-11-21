@@ -57,6 +57,7 @@ header select { flex: 1; min-width: 0; }
 #views button { border-radius: 0; margin-left: -1px; min-width: var(--tap); }
 #views button:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
 #views button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+#freeze[aria-pressed="true"] { border-color: var(--focus); background-color: var(--control-hover); font-weight: 600; }
 #views button[aria-pressed="true"] { background-color: var(--control-hover); border-color: var(--focus); position: relative; font-weight: 600; }
 header button { flex: none; }
 
